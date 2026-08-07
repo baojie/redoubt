@@ -85,6 +85,20 @@ describe("shape", () => {
 });
 
 describe("fairness", () => {
+  it("is mirror-symmetric about the centre line", () => {
+    // The flags being mirrored is not enough. Once terrain blocks rounds, the
+    // side with the better ground wins more, and unmirrored noise decides that
+    // by seed rather than by play — it measured at a 68/32 split.
+    const terrain = createTerrain(20260807, MAIN_BASES);
+    for (let x = 0; x <= rules.MAP_SIZE_M / 2; x += 17) {
+      for (let y = 0; y <= rules.MAP_SIZE_M; y += 37) {
+        const here = terrain.heightAt(x, y);
+        const mirrored = terrain.heightAt(rules.MAP_SIZE_M - x, y);
+        expect(Math.abs(here - mirrored)).toBeLessThan(0.001);
+      }
+    }
+  });
+
   it("levels both main bases to the same elevation", () => {
     const terrain = createTerrain(4242, MAIN_BASES);
     const blue = terrain.heightAt(MAIN_BASES[0]!.x, MAIN_BASES[0]!.y);
