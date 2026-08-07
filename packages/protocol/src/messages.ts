@@ -1,0 +1,247 @@
+/**
+ * The wire contract.
+ *
+ * Server and client both depend on this and on nothing of each other's. It
+ * describes only what crosses the socket — never how either side stores or
+ * renders it.
+ *
+ * Three ideas shape the design, all from PLAN §4:
+ *
+ *  1. The server is the only authority. The client sends *intents*, never
+ *     results, and never its own position.
+ *  2. Every input carries a sequence number, and every snapshot echoes the last
+ *     sequence the server consumed. That echo is what lets the client throw
+ *     away confirmed predictions and replay the rest.
+ *  3. Snapshots are culled by distance and diffed per entity, because 12 people
+ *     on a 1 km² map do not need to know about the other side of it.
+ */
+
+import type {
+  ControlPointId,
+  DeployableId,
+  DeployableType,
+  FobId,
+  GameEvent,
+  Lane,
+  MapDefinition,
+  PlayerId,
+  PlayerRole,
+  PlayerStatus,
+  RallyPointId,
+  SquadId,
+  TeamId,
+  VehicleId,
+  VehicleType,
+} from "@redoubt/core";
+
+export const PROTOCOL_VERSION = 1;
+
+// ---------------------------------------------------------------------------
+// Intents: what a client is allowed to ask for
+// ---------------------------------------------------------------------------
+
+/**
+ * A command with the actor stripped out.
+ *
+ * The server fills in `player` from the authenticated connection. A client
+ * that could name the actor could act as anyone, so the field simply does not
+ * exist on the wire.
+ */
+export type Intent =
+  | { t: "steer"; dir: { x: number; y: number } }
+  | { t: "halt" }
+  | { t: "spawn"; source: SpawnChoice }
+  | { t: "placeRally" }
+  | { t: "placeFob" }
+  | { t: "dismantleFob"; fob: FobId }
+  | { t: "placeDeployable"; fob: FobId; kind: DeployableType; pos: { x: number; y: number } }
+  | { t: "build"; deployable: DeployableId }
+  | { t: "engage"; target: PlayerId }
+  | { t: "revive"; target: PlayerId }
+  | { t: "giveUp" }
+  | { t: "resupply" }
+  | { t: "enterVehicle"; vehicle: VehicleId }
+  | { t: "exitVehicle" }
+  | { t: "driveTo"; to: { x: number; y: number } }
+  | { t: "loadSupply"; constructionPoints: number; ammoPoints: number }
+  | {
+      t: "unloadSupply";
+      fob: FobId;
+      constructionPoints: number;
+      ammoPoints: number;
+    };
+
+export type SpawnChoice =
+  | { kind: "main" }
+  | { kind: "rally"; rally: RallyPointId }
+  | { kind: "habitat"; deployable: DeployableId };
+
+// ---------------------------------------------------------------------------
+// Client -> server
+// ---------------------------------------------------------------------------
+
+export type ClientMessage =
+  | { t: "join"; protocol: number; name: string }
+  /**
+   * One input frame. `seq` is monotonic per connection; the server acks the
+   * highest it has consumed. `intents` is the whole set for this frame, so a
+   * lost frame costs one frame of input rather than desynchronising anything.
+   */
+  | { t: "input"; seq: number; intents: Intent[] }
+  /** Round-trip probe. `sent` is the client's own clock, echoed back untouched. */
+  | { t: "ping"; sent: number };
+
+// ---------------------------------------------------------------------------
+// Server -> client
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything about a player that a client can legitimately see. Note what is
+ * absent: another player's ammo, their supply, their orders.
+ */
+export interface PlayerView {
+  id: PlayerId;
+  team: TeamId;
+  squad: SquadId;
+  role: PlayerRole;
+  status: PlayerStatus;
+  x: number;
+  y: number;
+}
+
+/** Extra fields sent only for the receiving client's own soldier. */
+export interface SelfView extends PlayerView {
+  health: number;
+  ammo: number;
+  vehicle: VehicleId | null;
+  /**
+   * Raw ticks, not a countdown. The client owns `core`'s rule constants, so it
+   * can work out the wait for each spawn source itself — and a countdown
+   * computed server-side would be stale by the time it arrived anyway.
+   */
+  deployingSinceTick: number;
+  bleedoutAtTick: number;
+}
+
+export interface ControlPointView {
+  id: ControlPointId;
+  owner: TeamId | null;
+  contestingTeam: TeamId | null;
+  progress: number;
+}
+
+export interface FobView {
+  id: FobId;
+  team: TeamId;
+  x: number;
+  y: number;
+  constructionPoints: number;
+  ammoPoints: number;
+  radioHealth: number;
+}
+
+export interface DeployableView {
+  id: DeployableId;
+  fob: FobId;
+  team: TeamId;
+  kind: DeployableType;
+  x: number;
+  y: number;
+  /** 0..1. */
+  buildProgress: number;
+  built: boolean;
+  overrun: boolean;
+}
+
+export interface RallyView {
+  id: RallyPointId;
+  squad: SquadId;
+  team: TeamId;
+  x: number;
+  y: number;
+  /** Ticks until the wave cooldown expires, 0 if it already has. */
+  readyInTicks: number;
+  /**
+   * Whether it will actually accept a spawn right now. Distinct from the
+   * cooldown: a rally with enemies inside 50 m is off the menu regardless of
+   * its timer, and the client cannot see those enemies to work it out.
+   */
+  live: boolean;
+}
+
+export interface VehicleView {
+  id: VehicleId;
+  team: TeamId;
+  kind: VehicleType;
+  x: number;
+  y: number;
+  occupants: number;
+  cargoConstructionPoints: number;
+  cargoAmmoPoints: number;
+}
+
+export interface TeamView {
+  id: TeamId;
+  tickets: number;
+}
+
+/**
+ * One frame of world state.
+ *
+ * `removed` carries ids that have left this client's view — either destroyed
+ * or simply out of range. Without it a client would accumulate ghosts, since
+ * absence from a delta means "unchanged", not "gone".
+ */
+export interface Snapshot {
+  tick: number;
+  /** Highest input sequence from this client that the server has consumed. */
+  ackSeq: number;
+  /** True when this frame carries every visible entity, not just the changes. */
+  full: boolean;
+
+  self: SelfView | null;
+  players: PlayerView[];
+  controlPoints: ControlPointView[];
+  fobs: FobView[];
+  deployables: DeployableView[];
+  rallies: RallyView[];
+  vehicles: VehicleView[];
+  teams: TeamView[];
+
+  removed: {
+    players: PlayerId[];
+    fobs: FobId[];
+    deployables: DeployableId[];
+    rallies: RallyPointId[];
+    vehicles: VehicleId[];
+  };
+
+  doubleNeutral: boolean;
+  phase: "staging" | "active" | "finished";
+}
+
+/** Sent once on join: the constants a client needs before it can draw anything. */
+export interface WelcomePayload {
+  protocol: number;
+  playerId: PlayerId;
+  team: TeamId;
+  squad: SquadId;
+  tickRateHz: number;
+  /** Server tick at the moment of joining, so the client can align its clock. */
+  tick: number;
+  map: MapDefinition;
+  /**
+   * The drawn lane. Sent in full because a 2D map client renders the flags it
+   * can see anyway; RAAS hides the *route*, and hiding it from the renderer
+   * rather than the protocol keeps the client honest about what it displays.
+   */
+  lane: Lane;
+}
+
+export type ServerMessage =
+  | ({ t: "welcome" } & WelcomePayload)
+  | { t: "snapshot"; snapshot: Snapshot }
+  /** Gameplay events worth surfacing: kill feed, flag captures, FOB losses. */
+  | { t: "events"; tick: number; events: GameEvent[] }
+  | { t: "pong"; sent: number; serverTick: number }
+  | { t: "rejected"; reason: string };
