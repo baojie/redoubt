@@ -1,0 +1,154 @@
+/**
+ * Events emitted by a tick.
+ *
+ * `core` has no logging, no console, no I/O. It reports what happened by
+ * appending to an event list that the caller drains. The headless sim turns
+ * these into a battle report; the server will forward a filtered subset to
+ * clients.
+ */
+
+import type {
+  ControlPointId,
+  DeployableId,
+  FobId,
+  PlayerId,
+  RallyPointId,
+  SquadId,
+  TeamId,
+  VehicleId,
+} from "./types.js";
+import type { DeployableType, VehicleType } from "./rules.js";
+
+export type TicketReason =
+  | "infantryDeath"
+  | "commanderDeath"
+  | "fobRadioDestroyed"
+  | "vehicleLost"
+  | "firstCapture"
+  | "positionalBleed"
+  | "mercyBleed";
+
+export type GameEvent =
+  | { t: "matchStarted"; tick: number; lane: string }
+  | { t: "matchEnded"; tick: number; winner: TeamId | null; reason: string }
+  | {
+      t: "ticketChange";
+      tick: number;
+      team: TeamId;
+      delta: number;
+      total: number;
+      reason: TicketReason;
+    }
+  | {
+      t: "controlPointNeutralised";
+      tick: number;
+      point: ControlPointId;
+      by: TeamId;
+      formerOwner: TeamId;
+    }
+  | {
+      t: "controlPointCaptured";
+      tick: number;
+      point: ControlPointId;
+      by: TeamId;
+      firstEver: boolean;
+    }
+  | { t: "doubleNeutralStarted"; tick: number }
+  | { t: "doubleNeutralEnded"; tick: number }
+  | { t: "mercyBleedStarted"; tick: number; bleeding: TeamId }
+  | { t: "mercyBleedEnded"; tick: number; bleeding: TeamId }
+  | { t: "fobPlaced"; tick: number; fob: FobId; team: TeamId; by: PlayerId }
+  | {
+      t: "fobDestroyed";
+      tick: number;
+      fob: FobId;
+      team: TeamId;
+      selfDismantled: boolean;
+      lifetimeTicks: number;
+    }
+  | {
+      t: "deployablePlaced";
+      tick: number;
+      deployable: DeployableId;
+      fob: FobId;
+      team: TeamId;
+      kind: DeployableType;
+    }
+  | {
+      t: "deployableBuilt";
+      tick: number;
+      deployable: DeployableId;
+      team: TeamId;
+      kind: DeployableType;
+      builders: number;
+      buildTicks: number;
+    }
+  | {
+      t: "deployableDestroyed";
+      tick: number;
+      deployable: DeployableId;
+      team: TeamId;
+      kind: DeployableType;
+      cascaded: boolean;
+    }
+  | { t: "habitatOverrunStarted"; tick: number; deployable: DeployableId; team: TeamId }
+  | { t: "habitatOverrunEnded"; tick: number; deployable: DeployableId; team: TeamId }
+  | { t: "rallyPlaced"; tick: number; rally: RallyPointId; squad: SquadId; team: TeamId }
+  | {
+      t: "rallyDestroyed";
+      tick: number;
+      rally: RallyPointId;
+      squad: SquadId;
+      team: TeamId;
+      byEnemy: boolean;
+    }
+  | {
+      t: "playerSpawned";
+      tick: number;
+      player: PlayerId;
+      team: TeamId;
+      source: "main" | "rally" | "habitat";
+    }
+  | { t: "playerDowned"; tick: number; player: PlayerId; team: TeamId; by: PlayerId | null }
+  | { t: "playerRevived"; tick: number; player: PlayerId; team: TeamId; by: PlayerId }
+  | {
+      t: "playerDied";
+      tick: number;
+      player: PlayerId;
+      team: TeamId;
+      cause: "bleedout" | "gaveUp";
+    }
+  | {
+      t: "supplyLoaded";
+      tick: number;
+      vehicle: VehicleId;
+      team: TeamId;
+      constructionPoints: number;
+      ammoPoints: number;
+    }
+  | {
+      t: "supplyUnloaded";
+      tick: number;
+      vehicle: VehicleId;
+      fob: FobId;
+      team: TeamId;
+      constructionPoints: number;
+      ammoPoints: number;
+    }
+  | {
+      t: "vehicleDestroyed";
+      tick: number;
+      vehicle: VehicleId;
+      team: TeamId;
+      kind: VehicleType;
+    }
+  | {
+      t: "commandRejected";
+      tick: number;
+      player: PlayerId;
+      command: string;
+      reason: string;
+    };
+
+/** Sink handed to systems so they can report without owning the array. */
+export type EventSink = GameEvent[];
