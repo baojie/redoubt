@@ -137,7 +137,9 @@ function approach(
   // On top of it. Keep shooting whatever is defending, but do not walk away:
   // teardown only accrues while a body is inside the radius.
   const canFire =
-    state.tick >= player.nextShotAtTick && player.ammo >= rules.AMMO_PER_ENGAGEMENT;
+    player.reloadingUntilTick <= state.tick &&
+    state.tick >= player.nextShotAtTick &&
+    player.magazine >= rules.AMMO_PER_ENGAGEMENT;
   if (canFire) {
     const enemy = nearestDefender(state, player);
     if (enemy !== undefined) out.push({ t: "engage", player: player.id, target: enemy.id });

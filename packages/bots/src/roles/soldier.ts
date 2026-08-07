@@ -12,8 +12,12 @@ import { nearestEnemy, resupplySourceInReach, spreadAround } from "../awareness.
 
 /** Spread infantry around the flag instead of stacking them on one pixel. */
 const ASSAULT_SPREAD_M = 60;
-/** Soldiers below this reload from any source in reach. */
+/** Soldiers below this reserve reload from any source in reach. */
 const LOW_AMMO = 20;
+/** Top up the magazine once it drops to here, given a lull. */
+const MAGAZINE_RELOAD_THRESHOLD = 8;
+/** Closer than this and you finish the magazine before reloading. */
+const URGENT_CONTACT_M = 60;
 
 export function fightTowards(
   state: GameState,
@@ -21,14 +25,26 @@ export function fightTowards(
   destination: { x: number; y: number },
   out: Command[],
 ): void {
-  const canFire =
-    state.tick >= player.nextShotAtTick && player.ammo >= rules.AMMO_PER_ENGAGEMENT;
-  if (canFire) {
-    const enemy = nearestEnemy(state, player);
-    if (enemy !== undefined) {
-      out.push({ t: "engage", player: player.id, target: enemy.id });
-      // Keep closing rather than standing still — an M0 stand-in for cover.
+  const enemy = nearestEnemy(state, player);
+  const reloading = player.reloadingUntilTick > state.tick;
+
+  // Reload in the gaps rather than discovering an empty magazine mid-contact.
+  // Bots that only reloaded when the trigger clicked spent most of a match
+  // waiting on it and generated twenty thousand rejected commands a match.
+  if (!reloading && player.magazine <= MAGAZINE_RELOAD_THRESHOLD) {
+    const contact = enemy !== undefined && distance(enemy.pos, player.pos) < URGENT_CONTACT_M;
+    if (!contact || player.magazine < rules.AMMO_PER_ENGAGEMENT) {
+      out.push({ t: "reload", player: player.id });
     }
+  }
+
+  const canFire =
+    !reloading &&
+    state.tick >= player.nextShotAtTick &&
+    player.magazine >= rules.AMMO_PER_ENGAGEMENT;
+  if (canFire && enemy !== undefined) {
+    out.push({ t: "engage", player: player.id, target: enemy.id });
+    // Keep closing rather than standing still — an M0 stand-in for cover.
   }
 
   if (player.ammo <= LOW_AMMO && resupplySourceInReach(state, player)) {
