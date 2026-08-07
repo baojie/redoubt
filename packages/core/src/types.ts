@@ -73,6 +73,11 @@ export interface Player {
   reviveProgressTicks: number;
   /** Rate-of-fire gate: the earliest tick this player may fire again. */
   nextShotAtTick: number;
+  /**
+   * Who last put a round into this player, for kill credit. Set when damage
+   * lands; read when the casualty is resolved at the end of the tick.
+   */
+  lastHitBy: PlayerId | null;
   /** Lifetime counters, for the battle report. */
   kills: number;
   deaths: number;

@@ -129,6 +129,7 @@ export function createInitialState(options: MatchOptions): GameState {
         vehicle: null,
         reviveProgressTicks: 0,
         nextShotAtTick: 0,
+        lastHitBy: null,
         kills: 0,
         deaths: 0,
       };

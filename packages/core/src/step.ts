@@ -44,6 +44,7 @@ import {
   applyRevives,
   canRevive,
   killPlayer,
+  resolveHits,
   trySpawn,
   updateCasualties,
 } from "./systems/spawn.js";
@@ -102,6 +103,9 @@ export class Simulation {
       this.applyCommand(command, builders, medics);
     }
 
+    // Damage from this tick becomes casualties simultaneously, before any
+    // system reads who is still standing.
+    resolveHits(world);
     applyConstruction(world, builders);
     applyRevives(world, medics);
     updateMovement(world);

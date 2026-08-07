@@ -106,6 +106,7 @@ export function hashState(state: GameState): number {
     h.scalar(p.health).scalar(p.ammo);
     h.int(p.bleedoutAtTick).int(p.deployingSinceTick);
     h.maybeId(p.vehicle).int(p.reviveProgressTicks).int(p.nextShotAtTick);
+    h.maybeId(p.lastHitBy);
     h.int(p.kills).int(p.deaths);
   }
 

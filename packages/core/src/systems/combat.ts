@@ -23,7 +23,6 @@ import {
 } from "../rules.js";
 import type { Player, PlayerId } from "../types.js";
 import type { World } from "../world.js";
-import { downPlayer } from "./spawn.js";
 
 export type EngageRejection =
   | "notAlive"
@@ -54,10 +53,13 @@ export function tryEngage(
   shooter.nextShotAtTick = world.state.tick + ENGAGEMENT_COOLDOWN_TICKS;
   if (!world.rng.chance(hitChanceAtRange(range))) return null;
 
+  // Damage lands now; going down is resolved after every command this tick has
+  // been applied — see resolveHits. Downing the target here instead would mean
+  // whoever's command was processed first won every mutual engagement, and
+  // since commands arrive in player-id order that is a permanent advantage for
+  // one team. It measured as several points of win rate.
   target.health -= DAMAGE_PER_HIT;
-  if (target.health <= 0) {
-    downPlayer(world, target, shooter.id);
-  }
+  target.lastHitBy = shooter.id;
   return null;
 }
 

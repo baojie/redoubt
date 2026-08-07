@@ -36,6 +36,7 @@ export function downPlayer(world: World, player: Player, by: PlayerId | null): v
   player.waypoint = null;
   player.steer = null;
   player.reviveProgressTicks = 0;
+  player.lastHitBy = null;
   player.bleedoutAtTick = world.state.tick + BLEEDOUT_TICKS;
   if (player.vehicle !== null) ejectFromVehicle(world, player);
   world.emit({
@@ -91,6 +92,23 @@ function ejectFromVehicle(world: World, player: Player): void {
     if (index >= 0) vehicle.occupants.splice(index, 1);
   }
   player.vehicle = null;
+}
+
+/**
+ * Turn this tick's damage into casualties, all at once.
+ *
+ * Runs after every command has been applied, so two soldiers who shot each
+ * other in the same tick both land their rounds and both go down. Resolving a
+ * hit the instant it is scored would instead hand the win to whichever
+ * command the server happened to process first — which is player-id order, and
+ * therefore the same team every time.
+ */
+export function resolveHits(world: World): void {
+  for (const player of world.state.players) {
+    if (player.status !== "alive") continue;
+    if (player.health > 0) continue;
+    downPlayer(world, player, player.lastHitBy);
+  }
 }
 
 /** Bleed-out timers. Runs every tick; the check is one comparison per body. */
