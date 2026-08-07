@@ -42,7 +42,7 @@ const DECISION_INTERVAL_TICKS = 10;
 const CASUALTY_SEEK_RADIUS_M = 80;
 
 /** How many of the assault squad peel off to raid once a target is confirmed. */
-const RAIDERS_PER_TEAM = 2;
+const RAIDERS_PER_TEAM = 3;
 
 export interface DecideOptions {
   /**

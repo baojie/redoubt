@@ -12,7 +12,7 @@ graphics at all — and the game is already playable enough to measure.
 | Milestone | State |
 |---|---|
 | **M0** — deterministic rules engine + headless match report | **done** |
-| **M1** — layered bots and balance harness | batch harness done, bots are a placeholder driver |
+| **M1** — layered bots and balance harness | **done** |
 | **M2** — authoritative server + 2D playable client | **done** |
 | M3 — 3D first person | not started |
 | M4 — vehicles and logistics in 3D | not started |
@@ -37,15 +37,27 @@ engage, `/` for the full key list.
 ./run.sh check        # typecheck, then tests
 ```
 
-A 1000-match run takes about 40 seconds and currently reports a 49.8% / 50.2%
-win split with a mean match length of 42.6 minutes.
+A 1000-match run takes about a minute. Current numbers: 48.3% / 51.7% win
+split, 44.6 minute mean match length, 95.5% of matches inside the 30-60 band,
+zero deadlocks.
+
+**Check `--per-lane`, not just the total.** An aggregate win rate cannot see an
+unfair map. The original layout measured 49.8% / 50.2% across a thousand
+matches while its four RAAS lanes ran 13/87, 79/21, 64/36 and 41/59 — every
+single match unfair, the biases cancelling out in the average. It is now
+mirror-symmetric by construction, with a test to keep it that way, and every
+lane sits between 48% and 52%.
+
+```bash
+./run.sh batch 250 --per-lane
+```
 
 ## Layout
 
 ```
 packages/
   core/       pure deterministic rules engine — no rendering, network, I/O or clocks
-  bots/       decision layer: reads state, returns commands. fills empty slots
+  bots/       decision layer, split by role. reads state, returns commands
   protocol/   the wire format, shared by server and client and owned by neither
   server/     authoritative 20Hz simulation host
   client/     Canvas 2D top-down view. predicts, never decides
@@ -95,17 +107,18 @@ disagree about movement, which is a bug rather than a network condition.
 
 ## Known gaps
 
-- `packages/bots` is still the M0 placeholder driver. It plays the objective
-  and runs the logistics loop competently, but it never assaults an enemy FOB,
-  so FOB destruction — a rule that works and is unit-tested — is not exercised
-  in batch statistics, and the FOB-lifetime and radio-ticket figures in those
-  statistics are therefore unmeasured rather than good.
-- No squad leader, human or bot, ever repositions a FOB as the front moves.
+- **Deep raids barely work, and that is a fact about the combat model.** Bots
+  now detach a raiding party to hunt enemy radios, and it lands a kill in about
+  1.4% of matches. The reason it is not higher: the M0/M1 combat stand-in has
+  no cover, no concealment and no suppression, so hit chance is purely a
+  function of range and the last 200 m to a defended radio is an open-field
+  fight against equal numbers. There is no mechanism by which infiltration
+  could work yet. M3's suppression should change this, and the FOB-lifetime
+  figures should be re-read then; today they are thin rather than wrong.
 - Vehicles exist and work, but nothing in the client renders their interior or
   seat assignment — you can drive and haul supply, and that is all.
 - JSON on the wire. Fine at this scale, and the first thing to change if the
   bandwidth number starts climbing.
-
 ## Legal
 
 Game mechanics, rules and numbers are not copyrightable, and the design table in

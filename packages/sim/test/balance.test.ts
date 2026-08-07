@@ -8,12 +8,18 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { rules } from "@redoubt/core";
-import { runBatch } from "../src/batch.js";
+import { RIVERBEND, rules } from "@redoubt/core";
+import { runBatch, runPerLane } from "../src/batch.js";
 import { runMatch } from "../src/runMatch.js";
 
 const GATE_MATCHES = 120;
 const FIRST_SEED = 1;
+/**
+ * Per lane, so the suite stays quick. Wide tolerances at this sample size —
+ * this catches a broken map, not a two-point imbalance. Use
+ * `pnpm sim --matches 250 --per-lane` when tuning.
+ */
+const LANE_GATE_MATCHES = 60;
 
 describe("balance gate", () => {
   const summary = runBatch(FIRST_SEED, GATE_MATCHES);
@@ -44,6 +50,34 @@ describe("balance gate", () => {
     expect(summary.meanConstructionDelivered[0]).toBeGreaterThan(
       rules.DEPLOYABLE_SPECS.habitat.constructionCost,
     );
+  });
+});
+
+describe("per-lane fairness", () => {
+  // The gate that actually matters, and the one this project learned the hard
+  // way. An aggregate win rate cannot see an unfair map: the original layout
+  // measured 49.8% / 50.2% over a thousand matches while its four lanes ran
+  // 13/87, 79/21, 64/36 and 41/59 — every match unfair, the biases cancelling.
+  // A layer is played one match at a time.
+  const perLane = runPerLane(
+    FIRST_SEED,
+    LANE_GATE_MATCHES,
+    RIVERBEND.lanes.map((l) => l.name),
+  );
+
+  it("gives neither side an edge on any single lane", () => {
+    for (const { lane, summary } of perLane) {
+      const blue = summary.wins[0] / summary.matches;
+      expect(blue, `lane ${lane} favours BLUE`).toBeLessThan(0.65);
+      expect(blue, `lane ${lane} favours RED`).toBeGreaterThan(0.35);
+    }
+  });
+
+  it("keeps every lane inside the match-length band on average", () => {
+    for (const { lane, summary } of perLane) {
+      expect(summary.durationMinutes.mean, `lane ${lane}`).toBeGreaterThanOrEqual(25);
+      expect(summary.durationMinutes.mean, `lane ${lane}`).toBeLessThanOrEqual(60);
+    }
   });
 });
 
