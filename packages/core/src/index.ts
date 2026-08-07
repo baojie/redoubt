@@ -29,6 +29,17 @@ export { Simulation } from "./step.js";
 export { hashState, Hasher } from "./hash.js";
 export { World } from "./world.js";
 export { RIVERBEND } from "./maps/riverbend.js";
+export {
+  BODY_HALF_HEIGHT_M,
+  BODY_RADIUS_M,
+  EYE_HEIGHT_M,
+  TERRAIN_BASE_M,
+  TERRAIN_RELIEF_M,
+  TORSO_HEIGHT_M,
+  Terrain,
+  createTerrain,
+  type TerrainOptions,
+} from "./terrain.js";
 
 export { canTeamContest, flagCounts } from "./systems/capture.js";
 export {
