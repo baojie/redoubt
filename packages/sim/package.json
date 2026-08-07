@@ -8,6 +8,7 @@
     "sim": "tsx src/cli.ts"
   },
   "dependencies": {
+    "@redoubt/bots": "workspace:*",
     "@redoubt/core": "workspace:*"
   }
 }

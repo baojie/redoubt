@@ -7,7 +7,7 @@
  */
 
 import { Simulation, flagCounts, rules, World, type TeamId } from "@redoubt/core";
-import { createDriverMemory, decide } from "./driver.js";
+import { createDriverMemory, decide } from "@redoubt/bots";
 import {
   accumulate,
   emptyTeamStats,

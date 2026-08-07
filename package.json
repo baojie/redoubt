@@ -12,7 +12,7 @@
     "sim": "pnpm --filter @redoubt/sim run sim --",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/sim/tsconfig.json --noEmit"
+    "typecheck": "for p in packages/*/tsconfig.json; do echo \"  $p\" && tsc -p \"$p\" || exit 1; done"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

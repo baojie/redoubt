@@ -7,6 +7,18 @@
  */
 
 export * as rules from "./rules.js";
+// The enum-like unions and their value tables are part of the public surface:
+// anything talking to core over a wire needs to validate against them.
+export {
+  DEPLOYABLE_SPECS,
+  DEPLOYABLE_TYPES,
+  VEHICLE_SPECS,
+  VEHICLE_TYPES,
+  type DeployableSpec,
+  type DeployableType,
+  type VehicleSpec,
+  type VehicleType,
+} from "./rules.js";
 export { Rng, type RngState } from "./rng.js";
 export * from "./math.js";
 export * from "./types.js";

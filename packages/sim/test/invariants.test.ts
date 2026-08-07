@@ -23,7 +23,7 @@ import {
   type GameState,
   type TeamId,
 } from "@redoubt/core";
-import { createDriverMemory, decide } from "../src/driver.js";
+import { createDriverMemory, decide } from "@redoubt/bots";
 
 /** A seed generator that keeps failures easy to reproduce by hand. */
 const seeds = fc.integer({ min: 1, max: 1_000_000 });

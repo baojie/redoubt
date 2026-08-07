@@ -613,13 +613,32 @@ function assignRescuers(state: GameState): RescueAssignment {
  *   squad 0 — assault, led by its squad leader who drops rallies
  *   squad 1 — index 0-2 dig the FOB, index 3+ run trucks
  */
-export function decide(state: GameState, world: World, memory: DriverMemory): Command[] {
+export interface DecideOptions {
+  /**
+   * Players the bots must not touch — slots a human has taken over. Their
+   * sustained work is dropped too, so a bot's half-finished dig does not keep
+   * ticking under a human's control.
+   */
+  skip?: ReadonlySet<number>;
+}
+
+export function decide(
+  state: GameState,
+  world: World,
+  memory: DriverMemory,
+  options: DecideOptions = {},
+): Command[] {
   const out: Command[] = [];
   if (state.phase === "finished") return out;
+  const skip = options.skip;
 
   if (state.tick % DECISION_INTERVAL_TICKS !== 0) {
     // Between decisions, keep working at whatever we were last told to do.
     for (const [playerId, command] of memory.sustained) {
+      if (skip?.has(playerId) === true) {
+        memory.sustained.delete(playerId);
+        continue;
+      }
       const player = world.player(playerId);
       if (player === undefined || player.status !== "alive") continue;
       if (!stillWorthDoing(world, player, command)) {
@@ -637,6 +656,10 @@ export function decide(state: GameState, world: World, memory: DriverMemory): Co
   const rescuers = assignRescuers(state);
 
   for (const player of state.players) {
+    if (skip?.has(player.id) === true) {
+      memory.trucks.delete(player.id);
+      continue;
+    }
     if (player.status === "deploying") {
       const source = chooseSpawn(state, world, player);
       if (source !== null) out.push({ t: "spawn", player: player.id, source });
