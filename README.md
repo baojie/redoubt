@@ -119,6 +119,7 @@ disagree about movement, which is a bug rather than a network condition.
   seat assignment — you can drive and haul supply, and that is all.
 - JSON on the wire. Fine at this scale, and the first thing to change if the
   bandwidth number starts climbing.
+
 ## Legal
 
 Game mechanics, rules and numbers are not copyrightable, and the design table in
