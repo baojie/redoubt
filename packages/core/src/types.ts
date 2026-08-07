@@ -8,6 +8,7 @@
 
 import type { Vec2 } from "./math.js";
 import type { RngState } from "./rng.js";
+import type { CoverVolume } from "./cover.js";
 import type { DeployableType, VehicleType } from "./rules.js";
 
 export type TeamId = 0 | 1;
@@ -279,6 +280,12 @@ export interface Lane {
 export interface MapDefinition {
   name: string;
   sizeM: number;
+  /**
+   * Hand-placed solid volumes: buildings, walls, containers. They stop rounds
+   * and they stop people, which is what makes "take cover" mean anything on
+   * ground that is otherwise open.
+   */
+  cover: CoverVolume[];
   mainBases: Record<TeamId, Vec2>;
   controlPoints: Array<{ id: ControlPointId; name: string; pos: Vec2 }>;
   lanes: Lane[];

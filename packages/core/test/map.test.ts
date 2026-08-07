@@ -109,6 +109,53 @@ describe("Riverbend is fair by construction", () => {
     }
   });
 
+  it("mirrors every piece of hand-placed cover", () => {
+    // Cover is authored for one half and mirrored, so this should be true by
+    // construction — which is exactly why it is worth asserting: the check
+    // costs nothing and it catches the day somebody hand-adds one building.
+    for (const volume of RIVERBEND.cover) {
+      const mirroredX = RIVERBEND.sizeM - volume.x;
+      const twin = RIVERBEND.cover.find(
+        (other) =>
+          Math.abs(other.x - mirroredX) < TOLERANCE_M &&
+          Math.abs(other.y - volume.y) < TOLERANCE_M &&
+          other.halfWidth === volume.halfWidth &&
+          other.halfDepth === volume.halfDepth &&
+          other.height === volume.height,
+      );
+      expect(
+        twin,
+        `cover at ${volume.x},${volume.y} has no mirror twin`,
+      ).toBeDefined();
+    }
+  });
+
+  it("keeps cover clear of the main bases", () => {
+    // A building inside a spawn is a building somebody spawns inside.
+    for (const volume of RIVERBEND.cover) {
+      for (const team of [0, 1] as const) {
+        const base = RIVERBEND.mainBases[team];
+        const gap = distance({ x: volume.x, y: volume.y }, base);
+        expect(gap, `cover at ${volume.x},${volume.y}`).toBeGreaterThan(
+          rules.MAIN_BASE_RADIUS_M,
+        );
+      }
+    }
+  });
+
+  it("does not wall off a control point", () => {
+    // Cover belongs *around* objectives. A volume sitting on the flag makes
+    // the flag a fortress instead of a fight.
+    for (const point of RIVERBEND.controlPoints) {
+      for (const volume of RIVERBEND.cover) {
+        const gap = distance({ x: volume.x, y: volume.y }, point.pos);
+        expect(gap, `${point.name} has cover on top of it`).toBeGreaterThan(
+          Math.max(volume.halfWidth, volume.halfDepth) + 10,
+        );
+      }
+    }
+  });
+
   it("offers more than one lane, or RAAS is not RAAS", () => {
     expect(RIVERBEND.lanes.length).toBeGreaterThan(1);
     const signatures = new Set(RIVERBEND.lanes.map((l) => l.points.join(",")));

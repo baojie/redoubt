@@ -16,7 +16,7 @@
  */
 
 import * as THREE from "three";
-import { Terrain, createTerrain, rules, type TeamId } from "@redoubt/core";
+import { Terrain, createTerrain, rules, type CoverVolume, type TeamId } from "@redoubt/core";
 import type { ClientWorld } from "./world.js";
 
 /** Metres per terrain mesh quad. Finer than the noise, coarser than a body. */
@@ -94,6 +94,8 @@ export class Scene3D {
   readonly terrain: Terrain;
 
   private readonly bodies = new Map<number, THREE.Object3D>();
+  /** Last drawn position per player, so the walk cycle follows real motion. */
+  private readonly lastSeen = new Map<number, { x: number; y: number }>();
   private readonly markers = new Map<number, THREE.Sprite>();
   private readonly structures = new Map<string, THREE.Object3D>();
   private readonly tracers: Tracer[] = [];
@@ -171,6 +173,28 @@ export class Scene3D {
     return mesh;
   }
 
+  /**
+   * Buildings, walls and containers, drawn from the same volumes the server
+   * blocks rounds with. Built once — none of it moves.
+   */
+  buildCover(cover: readonly CoverVolume[]): void {
+    const materials: Record<CoverVolume["kind"], THREE.Material> = {
+      building: new THREE.MeshLambertMaterial({ color: 0x9a9384 }),
+      wall: new THREE.MeshLambertMaterial({ color: 0x8a8578 }),
+      container: new THREE.MeshLambertMaterial({ color: 0x6f7a5c }),
+    };
+
+    for (const volume of cover) {
+      const groundZ = this.terrain.heightAt(volume.x, volume.y);
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(volume.halfWidth * 2, volume.height, volume.halfDepth * 2),
+        materials[volume.kind],
+      );
+      mesh.position.copy(worldToScene(volume.x, volume.y, groundZ + volume.height / 2));
+      this.scene.add(mesh);
+    }
+  }
+
   private addLighting(): void {
     // Low sun, so the relief actually reads as relief.
     const sun = new THREE.DirectionalLight(0xfff2dd, 2.1);
@@ -235,14 +259,31 @@ export class Scene3D {
       const at = world.interpolate(player.track, renderTick);
       const groundZ = this.terrain.heightAt(at.x, at.y);
       const down = player.status === "downed";
-      body.position.copy(worldToScene(at.x, at.y, groundZ + (down ? 0.3 : 0.9)));
-      body.rotation.y = sceneYaw(player.yaw);
-      body.scale.set(1, down ? 0.35 : 1, 1);
 
-      const material = ((body as THREE.Mesh).material as THREE.MeshLambertMaterial);
-      material.color.setHex(down ? DOWNED_COLOUR : TEAM_COLOUR[player.team]);
-      // Friend or foe is the single most important thing to read instantly.
-      material.emissive.setHex(friendly ? 0x101820 : 0x200000);
+      const previous = this.lastSeen.get(player.id);
+      const moved = previous === undefined ? 0 : Math.hypot(at.x - previous.x, at.y - previous.y);
+      this.lastSeen.set(player.id, { x: at.x, y: at.y });
+
+      body.position.copy(
+        worldToScene(at.x, at.y, groundZ + (down ? DOWN_TORSO_HEIGHT_M : rules.TORSO_HEIGHT_M)),
+      );
+      body.rotation.set(0, sceneYaw(player.yaw), 0);
+      if (down) {
+        // Face down on the ground rather than a shrunken standing figure: a
+        // casualty has to be findable, and its pose is the only cue.
+        body.rotation.x = -Math.PI / 2;
+      } else {
+        this.animate(body as THREE.Group, moved);
+      }
+
+      const colour = down ? DOWNED_COLOUR : TEAM_COLOUR[player.team];
+      for (const part of (body as THREE.Group).children) {
+        if (part.name === "rifle") continue;
+        const material = ((part as THREE.Mesh).material as THREE.MeshLambertMaterial);
+        material.color.setHex(colour);
+        // Friend or foe is the single most important thing to read instantly.
+        material.emissive.setHex(friendly ? 0x101820 : 0x200000);
+      }
 
       if (marker !== undefined) {
         marker.position.copy(
@@ -271,16 +312,77 @@ export class Scene3D {
     }
   }
 
-  private makeBody(): THREE.Mesh {
-    // A capsule is a stand-in for a soldier, and an honest one: it is exactly
-    // the shape the server tests rounds against.
-    const geometry = new THREE.CapsuleGeometry(
-      rules.BODY_RADIUS_M,
-      rules.BODY_HALF_HEIGHT_M * 2 - rules.BODY_RADIUS_M * 2,
-      4,
-      8,
-    );
-    return new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: 0xffffff }));
+  /**
+   * A soldier, built from primitives.
+   *
+   * A capsule was the honest shape — it is exactly what the server tests
+   * rounds against — but at a glance it reads as a pill, not a person, and
+   * "is that a man or a bush" is a question the player has to answer in about
+   * a third of a second. Silhouette is information.
+   *
+   * The figure is deliberately kept *inside* the hit cylinder: shoulders at the
+   * cylinder radius, nothing sticking out past it. A model wider than its own
+   * hitbox teaches players to aim at edges that do not register.
+   */
+  private makeBody(): THREE.Group {
+    const group = new THREE.Group();
+    const skin = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const r = rules.BODY_RADIUS_M;
+
+    const add = (
+      geometry: THREE.BufferGeometry,
+      x: number,
+      y: number,
+      z: number,
+      name: string,
+    ): THREE.Mesh => {
+      const mesh = new THREE.Mesh(geometry, skin);
+      mesh.position.set(x, y, z);
+      mesh.name = name;
+      group.add(mesh);
+      return mesh;
+    };
+
+    // Measured from the torso centre, which is what the server positions.
+    add(new THREE.BoxGeometry(r * 1.7, 0.62, r * 1.0), 0, 0.16, 0, "torso");
+    add(new THREE.SphereGeometry(0.115, 10, 8), 0, 0.58, 0, "head");
+    // A helmet brim gives the head a front, so facing reads at distance.
+    add(new THREE.CylinderGeometry(0.135, 0.135, 0.05, 10), 0, 0.63, -0.02, "helmet");
+
+    add(new THREE.BoxGeometry(0.1, 0.5, 0.1), -r * 0.85, 0.14, 0, "armL");
+    add(new THREE.BoxGeometry(0.1, 0.5, 0.1), r * 0.85, 0.14, 0, "armR");
+    add(new THREE.BoxGeometry(0.13, 0.62, 0.13), -0.1, -0.46, 0, "legL");
+    add(new THREE.BoxGeometry(0.13, 0.62, 0.13), 0.1, -0.46, 0, "legR");
+
+    // Something rifle-shaped held across the chest — at range this is most of
+    // what distinguishes a soldier from a civilian silhouette.
+    const rifle = add(new THREE.BoxGeometry(0.07, 0.07, 0.62), 0.12, 0.2, -0.22, "rifle");
+    (rifle.material as THREE.Material) = new THREE.MeshLambertMaterial({ color: 0x2b2b2b });
+
+    group.userData.phase = 0;
+    return group;
+  }
+
+  /**
+   * A walk cycle, driven by how far the figure has actually moved.
+   *
+   * Tying the swing to distance rather than to a timer means legs never skate:
+   * a soldier standing still stands still, and one being interpolated across a
+   * gap walks at the speed the interpolation implies.
+   */
+  private animate(group: THREE.Group, movedM: number): void {
+    const phase = ((group.userData.phase as number) ?? 0) + movedM * WALK_CYCLES_PER_M;
+    group.userData.phase = phase;
+
+    const swing = Math.sin(phase * Math.PI * 2) * 0.5;
+    const legL = group.getObjectByName("legL");
+    const legR = group.getObjectByName("legR");
+    const armL = group.getObjectByName("armL");
+    const armR = group.getObjectByName("armR");
+    if (legL !== undefined) legL.rotation.x = swing;
+    if (legR !== undefined) legR.rotation.x = -swing;
+    if (armL !== undefined) armL.rotation.x = -swing * 0.6;
+    if (armR !== undefined) armR.rotation.x = swing * 0.6;
   }
 
   /** Radios, habitats and rally points as simple blocks. */
@@ -397,3 +499,8 @@ export class Scene3D {
 
 /** How much of its flight a tracer streak spans. */
 const STREAK_FRACTION = 0.12;
+
+/** Full leg swings per metre walked. */
+const WALK_CYCLES_PER_M = 0.55;
+/** Torso height of a body lying on the ground. */
+const DOWN_TORSO_HEIGHT_M = 0.25;

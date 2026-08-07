@@ -7,8 +7,12 @@ import { describe, expect, it } from "vitest";
 import { Simulation, World, rules, validateFobPlacement } from "../src/index.js";
 import { eventsOfType, firstEvent, harness, stockFob } from "./helpers.js";
 
-/** Somewhere in open ground, clear of both main bases and any other FOB. */
-const OPEN_GROUND = { x: 500, y: 500 };
+/**
+ * Open ground: clear of every hand-placed cover volume and far enough from
+ * both main bases that a FOB may legally be planted here. Tests that are not
+ * about cover should not accidentally be standing in a wall.
+ */
+const OPEN_GROUND = { x: 150, y: 150 };
 
 function squadAt(h: ReturnType<typeof harness>, pos: { x: number; y: number }, count: number) {
   const team = h.team(0);
@@ -81,10 +85,10 @@ describe("FOB placement", () => {
     const members = squadAt(h, OPEN_GROUND, 3);
     h.tick([{ t: "placeFob", player: members[0]!.id }]);
 
-    // Straight up the map, so the second site stays clear of both mains.
+    // Out across the map, so the second site stays clear of both mains.
     const far = {
-      x: OPEN_GROUND.x,
-      y: OPEN_GROUND.y + rules.FOB_MIN_DISTANCE_FROM_FRIENDLY_FOB_M,
+      x: OPEN_GROUND.x + rules.FOB_MIN_DISTANCE_FROM_FRIENDLY_FOB_M,
+      y: OPEN_GROUND.y,
     };
     squadAt(h, far, 3);
     expect(validateFobPlacement(new World(h.state), h.team(0)[0]!)).toBeNull();

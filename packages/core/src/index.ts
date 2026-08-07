@@ -40,6 +40,15 @@ export {
   createTerrain,
   type TerrainOptions,
 } from "./terrain.js";
+export {
+  insideFootprint,
+  mirrorCover,
+  pushOutOfBox,
+  resolveCover,
+  segmentHitsBox,
+  type CoverBox,
+  type CoverVolume,
+} from "./cover.js";
 
 export { canTeamContest, flagCounts } from "./systems/capture.js";
 export {

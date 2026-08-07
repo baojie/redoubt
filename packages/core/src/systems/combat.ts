@@ -117,7 +117,7 @@ export function fire(world: World, shooter: Player, renderTick: number): FireRej
   const direction = applySpread(aim, spread, world.rng.next(), world.rng.next());
 
   const targets = rewoundTargets(world, shooter, renderTick);
-  const impact = resolveShot(terrain, origin, direction, targets);
+  const impact = resolveShot(terrain, origin, direction, targets, world.cover);
 
   for (const id of impact.suppressed) {
     const victim = world.player(id);

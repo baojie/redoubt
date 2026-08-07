@@ -7,7 +7,12 @@ import { describe, expect, it } from "vitest";
 import { rules } from "../src/index.js";
 import { eventsOfType, firstEvent, harness } from "./helpers.js";
 
-const OPEN_GROUND = { x: 500, y: 500 };
+/**
+ * Open ground: clear of every hand-placed cover volume and far enough from
+ * both main bases that a FOB may legally be planted here. Tests that are not
+ * about cover should not accidentally be standing in a wall.
+ */
+const OPEN_GROUND = { x: 150, y: 150 };
 
 describe("engagements", () => {
   it("spends a round from the magazine, and is rate limited", () => {

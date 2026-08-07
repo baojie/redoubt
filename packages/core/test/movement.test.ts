@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
 import { distance, rules } from "../src/index.js";
 import { firstEvent, harness } from "./helpers.js";
 
-const OPEN_GROUND = { x: 500, y: 500 };
+/**
+ * Genuinely open ground: clear of every hand-placed volume on the map, so
+ * these tests measure movement rather than collision. Cover has its own tests.
+ */
+const OPEN_GROUND = { x: 150, y: 150 };
 
 describe("steering", () => {
   it("walks at exactly the soldier's speed along the direction", () => {
@@ -133,6 +137,51 @@ describe("waypoints", () => {
 
     expect(player.pos).toEqual(target);
     expect(player.waypoint).toBeNull();
+  });
+});
+
+describe("cover", () => {
+  it("stops a soldier walking into a wall", () => {
+    const h = harness();
+    const player = h.team(0)[0]!;
+    const wall = h.state.map.cover.find((c) => c.kind === "wall")!;
+
+    // Start clear of the wall on its south side and walk north into it.
+    h.place(player.id, { x: wall.x, y: wall.y - wall.halfDepth - 8 });
+    h.tick([{ t: "steer", player: player.id, dir: { x: 0, y: 1 } }]);
+    h.run(rules.secondsToTicks(10));
+
+    expect(player.pos.y).toBeLessThan(wall.y - wall.halfDepth);
+  });
+
+  it("lets a soldier slide along a wall rather than sticking to it", () => {
+    const h = harness();
+    const player = h.team(0)[0]!;
+    const wall = h.state.map.cover.find((c) => c.kind === "wall" && c.halfWidth > 10)!;
+
+    h.place(player.id, { x: wall.x, y: wall.y - wall.halfDepth - 1 });
+    // Into the wall and along it at the same time.
+    h.tick([{ t: "steer", player: player.id, dir: { x: 1, y: 1 } }]);
+    const startX = player.pos.x;
+    h.run(rules.secondsToTicks(5));
+
+    expect(player.pos.x).toBeGreaterThan(startX + 5);
+    expect(player.pos.y).toBeLessThan(wall.y - wall.halfDepth);
+  });
+
+  it("never leaves a soldier inside a building", () => {
+    const h = harness();
+    const player = h.team(0)[0]!;
+    const building = h.state.map.cover.find((c) => c.kind === "building")!;
+
+    // Shove them into the middle of it, then let a tick resolve.
+    h.place(player.id, { x: building.x, y: building.y });
+    h.tick([{ t: "steer", player: player.id, dir: { x: 0.2, y: 0.1 } }]);
+    h.run(2);
+
+    const insideX = Math.abs(player.pos.x - building.x) < building.halfWidth;
+    const insideY = Math.abs(player.pos.y - building.y) < building.halfDepth;
+    expect(insideX && insideY).toBe(false);
   });
 });
 

@@ -41,6 +41,7 @@ import {
   TRAJECTORY_SEGMENTS,
 } from "../rules.js";
 import { BODY_HALF_HEIGHT_M, BODY_RADIUS_M, type Terrain } from "../terrain.js";
+import { segmentHitsBox, type CoverBox } from "../cover.js";
 import type { PlayerId } from "../types.js";
 
 /** A body a round can hit, at the position it occupied when the shot was fired. */
@@ -50,7 +51,7 @@ export interface Target {
   torso: Vec3;
 }
 
-export type ImpactKind = "body" | "ground" | "spent";
+export type ImpactKind = "body" | "ground" | "cover" | "spent";
 
 export interface Impact {
   kind: ImpactKind;
@@ -94,6 +95,7 @@ export function resolveShot(
   origin: Vec3,
   direction: Vec3,
   targets: readonly Target[],
+  cover: readonly CoverBox[] = [],
   maxRangeM: number = BULLET_MAX_RANGE_M,
 ): Impact {
   const unit = normalise3(direction) ?? { x: 1, y: 0, z: 0 };
@@ -137,8 +139,20 @@ export function resolveShot(
     // a segment can pass under a crest that its endpoints both clear.
     const groundT = groundImpactT(terrain, segmentStart, segmentEnd);
 
+    // Walls and buildings. Nearest wins, and a wall in front of a body means
+    // the body is safe — which is the entire point of cover.
+    let coverT: number | null = null;
+    for (const box of cover) {
+      const hit = segmentHitsBox(segmentStart, segmentEnd, box);
+      if (hit === null) continue;
+      if (coverT === null || hit < coverT) coverT = hit;
+    }
+
+    const solidT =
+      groundT === null ? coverT : coverT === null ? groundT : Math.min(groundT, coverT);
+
     // Whichever came first along this segment wins.
-    if (bestTarget !== null && (groundT === null || bestT <= groundT)) {
+    if (bestTarget !== null && (solidT === null || bestT <= solidT)) {
       const at = lerp3(segmentStart, segmentEnd, bestT);
       return {
         kind: "body",
@@ -149,13 +163,14 @@ export function resolveShot(
         suppressed,
       };
     }
-    if (groundT !== null) {
-      const at = lerp3(segmentStart, segmentEnd, groundT);
+    if (solidT !== null) {
+      const at = lerp3(segmentStart, segmentEnd, solidT);
+      const stoppedByCover = coverT !== null && (groundT === null || coverT <= groundT);
       return {
-        kind: "ground",
+        kind: stoppedByCover ? "cover" : "ground",
         at,
-        rangeM: travelled + segmentLength * groundT,
-        flightSeconds: step * i + step * groundT,
+        rangeM: travelled + segmentLength * solidT,
+        flightSeconds: step * i + step * solidT,
         hit: null,
         suppressed,
       };

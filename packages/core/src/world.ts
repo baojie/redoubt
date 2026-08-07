@@ -11,6 +11,7 @@
 import type { GameEvent } from "./events.js";
 import { Rng } from "./rng.js";
 import { createTerrain, type Terrain } from "./terrain.js";
+import { resolveCover, type CoverBox } from "./cover.js";
 import { TEAM_IDS } from "./state.js";
 import type {
   Deployable,
@@ -58,6 +59,13 @@ export class World {
    */
   readonly terrain: Terrain;
 
+  /**
+   * Cover, bound to the ground beneath it. Resolved once per World because a
+   * building does not move, and re-deriving it per shot would put a terrain
+   * sample per volume into the hit-registration path.
+   */
+  readonly cover: readonly CoverBox[];
+
   private readonly playerIndex = emptyIndex<Player>();
   private readonly squadIndex = emptyIndex<Squad>();
   private readonly fobIndex = emptyIndex<Fob>();
@@ -72,6 +80,9 @@ export class World {
       state.terrainSeed,
       TEAM_IDS.map((team) => state.teams[team].mainBase),
       state.map.sizeM,
+    );
+    this.cover = state.map.cover.map((volume) =>
+      resolveCover(volume, this.terrain.heightAt(volume.x, volume.y)),
     );
   }
 

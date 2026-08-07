@@ -86,6 +86,7 @@ joinButton.addEventListener("click", () => {
           [welcome.map.mainBases[0], welcome.map.mainBases[1]],
           welcome.map.sizeM,
         );
+        scene.buildCover(welcome.map.cover);
       } catch (error) {
         scene = null;
         firstPersonView = false;
