@@ -13,6 +13,7 @@ import { pushOutOfBox } from "../cover.js";
 import {
   ADS_MOVE_SPEED_MULTIPLIER,
   BODY_RADIUS_M,
+  DRAG_SPEED_MULTIPLIER,
   PLAYER_SPEED_M_PER_TICK,
   TICK_RATE_HZ,
   VEHICLE_SPECS,
@@ -97,9 +98,11 @@ export function updateMovement(world: World): void {
 
     // Aiming down the sights costs mobility. That trade is what makes taking
     // the shot a decision rather than a free upgrade.
-    const speed = player.aiming
-      ? PLAYER_SPEED_M_PER_TICK * ADS_MOVE_SPEED_MULTIPLIER
-      : PLAYER_SPEED_M_PER_TICK;
+    let speed = PLAYER_SPEED_M_PER_TICK;
+    if (player.aiming) speed *= ADS_MOVE_SPEED_MULTIPLIER;
+    // Hauling a body is slower still, and the two stack: you are bent double,
+    // using one arm, and looking down a sight you cannot hold steady.
+    if (player.dragging !== null) speed *= DRAG_SPEED_MULTIPLIER;
 
     // A held direction (human on WASD) takes precedence over a waypoint
     // (bot walking to a place); the command handlers keep them exclusive.

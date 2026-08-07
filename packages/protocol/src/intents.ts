@@ -135,6 +135,11 @@ export function intentToCommand(player: PlayerId, intent: Intent): Command | nul
       const target = id(intent.target);
       return target === null ? null : { t: "revive", player, target };
     }
+    case "drag": {
+      if (intent.target === null) return { t: "drag", player, target: null };
+      const target = id(intent.target);
+      return target === null ? null : { t: "drag", player, target };
+    }
 
     case "giveUp":
       return { t: "giveUp", player };

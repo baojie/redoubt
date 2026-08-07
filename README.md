@@ -14,7 +14,7 @@ graphics at all — and the game is already playable enough to measure.
 | **M0** — deterministic rules engine + headless match report | **done** |
 | **M1** — layered bots and balance harness | **done** |
 | **M2** — authoritative server + 2D playable client | **done** |
-| **M3** — 3D first person, real ballistics | **playable** |
+| **M3** — 3D first person, real ballistics | **done** |
 | M4 — vehicles and logistics in 3D | not started |
 
 ## Play it
@@ -28,9 +28,11 @@ Then open <http://localhost:5173/>. You take over a soldier a bot was already
 playing; the rest of both teams stay under bot control.
 
 It opens in first person: click to capture the mouse, WASD to move, mouse to
-look, click to fire, `R` to reload. `Tab` switches to the top-down map view —
-which is the whole M2 client, still running on the same connection, not a
-minimap. `/` for the full key list.
+look, left click to fire, **right click to aim down the sights**, `R` to
+reload. Stand over a downed teammate and `F` revives them, `Q` drags them
+somewhere safer first. `Tab` switches to the top-down map view — which is the
+whole M2 client, still running on the same connection, not a minimap. `/` for
+the full key list.
 
 If your machine has no WebGL the page falls back to the map view rather than
 breaking; the map view is a complete client on its own.
@@ -104,9 +106,14 @@ the invariants that keep it that way.
   dispersion and darkening their view until it decays. PLAN §5 rates this above
   weapon models, and it is the reason a machine gun is useful without hitting
   anyone.
-- **Terrain**: a 1 km² heightfield generated from the match seed alone —
-  nothing is shipped, and server and client compute the identical ground, so
-  the hill you take cover behind is the hill the server blocks rounds with.
+- **Terrain and cover**: a 1 km² heightfield generated from the match seed
+  alone — nothing is shipped, and server and client compute the identical
+  ground — plus hand-placed buildings and walls that stop both rounds and
+  people. Cover is authored for one half of the map and mirrored, so
+  asymmetry is unrepresentable.
+- **Casualties**: downed, revivable, and draggable to somewhere safer. A body
+  on the ground is still a target: shooting it again finishes it, which is the
+  rule that stops a squad reviving each other faster than anyone can kill them.
 
 The M0/M1 hit-probability stand-in is gone. Everything above it — tickets,
 FOBs, capture, logistics — was untouched by the swap, which is what building

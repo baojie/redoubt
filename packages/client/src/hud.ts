@@ -64,6 +64,20 @@ export class Hud {
     this.suppression.style.opacity = String(Math.max(0, Math.min(1, value)));
   }
 
+  /**
+   * What the soldier in front of you needs.
+   *
+   * The downed system is the team glue PLAN §5 describes, and glue that
+   * nobody can see is not glue: without a prompt, a casualty lying in the
+   * grass is a shape you walk past.
+   */
+  setCasualtyPrompt(text: string | null): void {
+    this.prompt.textContent = text ?? "";
+    this.prompt.style.display = text === null ? "none" : "block";
+  }
+
+  private readonly prompt = must("prompt");
+
   drawWeapon(self: SelfView | null, tick: number): void {
     if (self === null || self.status !== "alive") {
       this.weapon.textContent = "";
@@ -89,12 +103,14 @@ export class Hud {
       "click   fire          (3D)",
       "right   aim down sights (3D)",
       "R       reload        (3D)",
+      "F       revive a casualty",
+      "Q       pick up / drop a casualty",
       "Tab     3D / map view",
       "click   engage nearest enemy (map)",
       "E       resupply",
       "B       build nearest site",
       "R       place rally      (SL)",
-      "F       place FOB radio  (SL)",
+      "T       place FOB radio  (SL)",
       "H       stake habitat    (SL)",
       "C       stake ammo crate (SL)",
       "G / V   enter / exit vehicle",

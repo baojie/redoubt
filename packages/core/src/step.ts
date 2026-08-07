@@ -53,7 +53,9 @@ import {
   canRevive,
   killPlayer,
   resolveHits,
+  tryDrag,
   trySpawn,
+  updateDragging,
   updateCasualties,
 } from "./systems/spawn.js";
 
@@ -119,6 +121,9 @@ export class Simulation {
     updateMovement(world);
     // History is recorded after movement, so a rewind lands on positions the
     // clients were actually shown.
+    // Bodies follow their carriers before positions are recorded, so a
+    // dragged casualty is where the clients will be shown it.
+    updateDragging(world);
     recordPositionHistory(world);
     updateWeapons(world);
     updateCasualties(world);
@@ -282,6 +287,12 @@ export class Simulation {
         const helpers = medics.get(command.target);
         if (helpers === undefined) medics.set(command.target, [player.id]);
         else helpers.push(player.id);
+        return;
+      }
+
+      case "drag": {
+        const rejection = tryDrag(world, player, command.target);
+        if (rejection !== null) world.reject(player.id, command.t, rejection);
         return;
       }
 

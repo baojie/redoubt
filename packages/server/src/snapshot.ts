@@ -290,5 +290,6 @@ function selfView(player: Player): SelfView {
     reloadingUntilTick: player.reloadingUntilTick,
     suppression: quantise(player.suppression),
     aiming: player.aiming,
+    dragging: player.dragging,
   };
 }

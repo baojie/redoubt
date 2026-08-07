@@ -307,6 +307,19 @@ export const BLEEDOUT_DURATION_S = 90;
 export const BLEEDOUT_TICKS = secondsToTicks(BLEEDOUT_DURATION_S);
 
 export const REVIVE_REACH_M = 2;
+
+/**
+ * Dragging a casualty.
+ *
+ * PLAN §5 lists dragging alongside the downed system because the two only
+ * work together: a body that can only be revived where it fell means the medic
+ * has to work in the open under the fire that put it there. Being able to pull
+ * it behind a wall first is what makes holding ground near your casualties a
+ * real tactic rather than a suicidal one.
+ */
+export const DRAG_REACH_M = 2.5;
+/** Dragging is slow — you are bent double and using one arm. */
+export const DRAG_SPEED_MULTIPLIER = 0.4;
 export const REVIVE_DURATION_S = 8;
 export const REVIVE_TICKS = secondsToTicks(REVIVE_DURATION_S);
 /** Health a revived player stands up with. */

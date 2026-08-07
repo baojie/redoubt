@@ -198,6 +198,100 @@ describe("downed soldiers", () => {
   });
 });
 
+describe("dragging casualties", () => {
+  function downedBeside(h: ReturnType<typeof harness>) {
+    const carrier = h.team(0)[1]!;
+    const casualty = h.team(0)[2]!;
+    h.place(carrier.id, OPEN_GROUND);
+    h.place(casualty.id, { x: OPEN_GROUND.x + 1, y: OPEN_GROUND.y });
+    casualty.status = "downed";
+    casualty.bleedoutAtTick = h.state.tick + rules.BLEEDOUT_TICKS;
+    return { carrier, casualty };
+  }
+
+  it("hauls a body along behind you", () => {
+    const h = harness();
+    const { carrier, casualty } = downedBeside(h);
+
+    h.tick([{ t: "drag", player: carrier.id, target: casualty.id }]);
+    h.tick([{ t: "steer", player: carrier.id, dir: { x: 1, y: 0 } }]);
+    h.run(rules.secondsToTicks(6));
+
+    expect(carrier.pos.x).toBeGreaterThan(OPEN_GROUND.x + 2);
+    // The body came too, trailing rather than riding on top of the carrier.
+    expect(casualty.pos.x).toBeGreaterThan(OPEN_GROUND.x + 1);
+    const gap = Math.hypot(casualty.pos.x - carrier.pos.x, casualty.pos.y - carrier.pos.y);
+    expect(gap).toBeGreaterThan(0.5);
+    expect(gap).toBeLessThan(2.5);
+  });
+
+  it("slows the carrier down", () => {
+    const h = harness();
+    const { carrier, casualty } = downedBeside(h);
+    const free = h.team(0)[3]!;
+    h.place(free.id, OPEN_GROUND);
+
+    h.tick([{ t: "drag", player: carrier.id, target: casualty.id }]);
+    h.tick([
+      { t: "steer", player: carrier.id, dir: { x: 1, y: 0 } },
+      { t: "steer", player: free.id, dir: { x: 1, y: 0 } },
+    ]);
+    h.run(rules.secondsToTicks(4));
+
+    const hauled = carrier.pos.x - OPEN_GROUND.x;
+    const unencumbered = free.pos.x - OPEN_GROUND.x;
+    expect(hauled).toBeCloseTo(unencumbered * rules.DRAG_SPEED_MULTIPLIER, 1);
+  });
+
+  it("refuses a body out of reach", () => {
+    const h = harness();
+    const { carrier, casualty } = downedBeside(h);
+    h.place(casualty.id, { x: OPEN_GROUND.x + rules.DRAG_REACH_M + 2, y: OPEN_GROUND.y });
+
+    const events = h.tick([{ t: "drag", player: carrier.id, target: casualty.id }]);
+    expect(firstEvent(events, "commandRejected")?.reason).toBe("outOfReach");
+    expect(carrier.dragging).toBeNull();
+  });
+
+  it("lets only one pair of hands haul a body", () => {
+    const h = harness();
+    const { carrier, casualty } = downedBeside(h);
+    const rival = h.team(0)[3]!;
+    h.place(rival.id, OPEN_GROUND);
+
+    h.tick([{ t: "drag", player: carrier.id, target: casualty.id }]);
+    const events = h.tick([{ t: "drag", player: rival.id, target: casualty.id }]);
+
+    expect(firstEvent(events, "commandRejected")?.reason).toBe("alreadyDragged");
+    expect(rival.dragging).toBeNull();
+    expect(carrier.dragging).toBe(casualty.id);
+  });
+
+  it("is dropped the moment the carrier goes down", () => {
+    const h = harness();
+    const { carrier, casualty } = downedBeside(h);
+    h.tick([{ t: "drag", player: carrier.id, target: casualty.id }]);
+    expect(carrier.dragging).toBe(casualty.id);
+
+    carrier.health = 0;
+    h.run(2);
+    expect(carrier.dragging).toBeNull();
+  });
+
+  it("is dropped when the casualty is revived", () => {
+    const h = harness();
+    const { carrier, casualty } = downedBeside(h);
+    h.tick([{ t: "drag", player: carrier.id, target: casualty.id }]);
+
+    h.run(rules.REVIVE_TICKS + 2, () => [
+      { t: "revive", player: carrier.id, target: casualty.id },
+    ]);
+
+    expect(casualty.status).toBe("alive");
+    expect(carrier.dragging).toBeNull();
+  });
+});
+
 describe("deploying", () => {
   it("makes you wait 45 s for a habitat and 15 s for main", () => {
     const h = harness();

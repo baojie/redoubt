@@ -94,6 +94,11 @@ export interface Player {
   /** Aiming down the sights: tighter cone, slower on the feet. */
   aiming: boolean;
   /**
+   * A casualty this player is hauling, or null. The body follows them at a
+   * fixed offset and they move at a fraction of normal speed.
+   */
+  dragging: PlayerId | null;
+  /**
    * Suppression accumulated by rounds fired *this tick*, folded into
    * `suppression` once every command has run. Deferred for the same reason
    * damage is: applying it immediately would let whichever team's commands are

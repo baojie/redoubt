@@ -157,6 +157,16 @@ function actionToIntent(action: ActionKey): Intent | null {
         pos,
       };
     }
+    case "reviveNearby": {
+      const casualty = casualtyInReach();
+      return casualty === null ? null : { t: "revive", target: casualty.id };
+    }
+    case "dragNearby": {
+      // One key for both: if you are carrying somebody, it puts them down.
+      if (self.dragging !== null) return { t: "drag", target: null };
+      const casualty = casualtyInReach();
+      return casualty === null ? null : { t: "drag", target: casualty.id };
+    }
     case "enterVehicle": {
       const vehicle = nearest(
         [...world.vehicles.values()].filter((v) => v.team === self.team),
@@ -392,6 +402,7 @@ function frame(): void {
     hud.drawNetgraph(connection.stats(renderTick), world.tick);
     hud.drawFeed(connection.feed);
     hud.setSuppression(world.self?.suppression ?? 0);
+    refreshCasualtyPrompt();
     refreshDeployScreen();
     return;
   }
@@ -415,6 +426,7 @@ function frame(): void {
   hud.drawNetgraph(connection.stats(renderTick), world.tick);
   hud.drawFeed(connection.feed);
   hud.setSuppression(0);
+  refreshCasualtyPrompt();
   refreshDeployScreen();
 }
 
@@ -475,6 +487,45 @@ resize();
 requestAnimationFrame(frame);
 
 // ---------------------------------------------------------------------------
+
+/**
+ * The friendly casualty you are standing over, if any.
+ *
+ * Reach is taken from the rules rather than guessed, so the prompt appears
+ * exactly when the command would actually be accepted — a prompt that lies
+ * about what is possible is worse than none.
+ */
+function casualtyInReach(): { id: number; x: number; y: number } | null {
+  const world = connection.world;
+  const self = world.self;
+  if (self === null) return null;
+  const me = predictedPosition();
+
+  let best: { id: number; x: number; y: number } | null = null;
+  let bestDistance = Math.max(rules.REVIVE_REACH_M, rules.DRAG_REACH_M);
+  for (const player of world.players.values()) {
+    if (player.team !== self.team || player.status !== "downed") continue;
+    const d = Math.hypot(player.x - me.x, player.y - me.y);
+    if (d > bestDistance) continue;
+    bestDistance = d;
+    best = { id: player.id, x: player.x, y: player.y };
+  }
+  return best;
+}
+
+function refreshCasualtyPrompt(): void {
+  const self = connection.world.self;
+  if (self === null || self.status !== "alive") {
+    hud.setCasualtyPrompt(null);
+    return;
+  }
+  if (self.dragging !== null) {
+    hud.setCasualtyPrompt("Q  put down");
+    return;
+  }
+  const casualty = casualtyInReach();
+  hud.setCasualtyPrompt(casualty === null ? null : "F  revive     Q  drag");
+}
 
 function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;

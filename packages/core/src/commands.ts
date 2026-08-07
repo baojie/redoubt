@@ -68,6 +68,12 @@ export type Command =
   | { t: "engage"; player: PlayerId; target: PlayerId }
   /** Work on reviving a downed teammate within reach. */
   | { t: "revive"; player: PlayerId; target: PlayerId }
+  /**
+   * Pick up or put down a downed teammate. Dragging is held state: the body
+   * follows until dropped, the carrier is killed, or the casualty is revived
+   * or expires.
+   */
+  | { t: "drag"; player: PlayerId; target: PlayerId | null }
   /** Give up while downed: costs the ticket immediately. */
   | { t: "giveUp"; player: PlayerId }
   /** Top up ammo from a crate, a FOB radio, or a vehicle. */

@@ -68,6 +68,8 @@ export type Intent =
   | { t: "build"; deployable: DeployableId }
   | { t: "engage"; target: PlayerId }
   | { t: "revive"; target: PlayerId }
+  /** Pick up a casualty, or null to put them down. */
+  | { t: "drag"; target: PlayerId | null }
   | { t: "giveUp" }
   | { t: "resupply" }
   | { t: "enterVehicle"; vehicle: VehicleId }
@@ -150,6 +152,8 @@ export interface SelfView extends PlayerView {
   suppression: number;
   /** Authoritative aiming state, so the client's zoom follows the server. */
   aiming: boolean;
+  /** A casualty this player is hauling, or null. */
+  dragging: PlayerId | null;
 }
 
 export interface ControlPointView {

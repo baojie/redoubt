@@ -136,6 +136,7 @@ export function createInitialState(options: MatchOptions): GameState {
         suppression: 0,
         recoilSteps: 0,
         aiming: false,
+        dragging: null,
         pendingSuppression: 0,
         nextShotAtTick: 0,
         history: [],

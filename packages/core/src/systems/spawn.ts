@@ -10,6 +10,7 @@ import { cloneVec2 } from "../math.js";
 import { withinRange } from "../math.js";
 import {
   BLEEDOUT_TICKS,
+  DRAG_REACH_M,
   HABITAT_SPAWN_DELAY_TICKS,
   MAIN_BASE_SPAWN_DELAY_TICKS,
   PLAYER_MAX_AMMO,
@@ -33,6 +34,8 @@ export function downPlayer(world: World, player: Player, by: PlayerId | null): v
   if (player.status !== "alive") return;
   player.status = "downed";
   player.health = 0;
+  // Both hands needed to stay upright: whatever you were hauling, you let go.
+  player.dragging = null;
   player.waypoint = null;
   player.steer = null;
   player.reviveProgressTicks = 0;
@@ -61,6 +64,7 @@ export function killPlayer(
   if (player.status === "deploying") return;
   player.status = "deploying";
   player.health = 0;
+  player.dragging = null;
   player.waypoint = null;
   player.steer = null;
   player.reviveProgressTicks = 0;
@@ -166,6 +170,86 @@ export function applyRevives(world: World, medics: Map<PlayerId, PlayerId[]>): v
     }
   }
 }
+
+/**
+ * Pick up or drop a casualty.
+ *
+ * Returns a rejection reason, or null on success. Dropping (`target: null`) is
+ * always allowed — you can always let go.
+ */
+export function tryDrag(
+  world: World,
+  carrier: Player,
+  targetId: PlayerId | null,
+): DragRejection | null {
+  if (targetId === null) {
+    carrier.dragging = null;
+    return null;
+  }
+  if (carrier.status !== "alive") return "notAlive";
+  if (carrier.vehicle !== null) return "mounted";
+
+  const target = world.player(targetId);
+  if (target === undefined) return "noSuchTarget";
+  if (target.status !== "downed") return "notDowned";
+  if (target.team !== carrier.team) return "wrongTeam";
+  if (!withinRange(carrier.pos, target.pos, DRAG_REACH_M)) return "outOfReach";
+
+  // One pair of hands per body. Somebody already hauling this casualty keeps
+  // them; otherwise two players would tug the same body in opposite directions.
+  for (const other of world.state.players) {
+    if (other.id !== carrier.id && other.dragging === targetId) return "alreadyDragged";
+  }
+
+  carrier.dragging = targetId;
+  return null;
+}
+
+export type DragRejection =
+  | "notAlive"
+  | "mounted"
+  | "noSuchTarget"
+  | "notDowned"
+  | "wrongTeam"
+  | "outOfReach"
+  | "alreadyDragged";
+
+/**
+ * Haul dragged bodies along behind their carriers, and drop the ones that are
+ * no longer draggable. Runs after movement, so the body ends the tick where
+ * the carrier actually got to.
+ */
+export function updateDragging(world: World): void {
+  for (const carrier of world.state.players) {
+    if (carrier.dragging === null) continue;
+
+    const body = world.player(carrier.dragging);
+    const stillValid =
+      body !== undefined &&
+      body.status === "downed" &&
+      carrier.status === "alive" &&
+      carrier.vehicle === null;
+    if (!stillValid) {
+      carrier.dragging = null;
+      continue;
+    }
+
+    // Trail just behind the carrier rather than sitting on top of them, so a
+    // dragged body still reads as a separate thing being pulled.
+    const dx = body.pos.x - carrier.pos.x;
+    const dy = body.pos.y - carrier.pos.y;
+    const gap = Math.hypot(dx, dy);
+    if (gap <= DRAG_TRAIL_M) continue;
+    const scale = DRAG_TRAIL_M / gap;
+    body.pos = {
+      x: carrier.pos.x + dx * scale,
+      y: carrier.pos.y + dy * scale,
+    };
+  }
+}
+
+/** How far behind the carrier a dragged body trails. */
+const DRAG_TRAIL_M = 1.2;
 
 /** Is this reviver allowed to work on this target right now? */
 export function canRevive(world: World, reviver: Player, targetId: PlayerId): boolean {
