@@ -91,6 +91,8 @@ export interface Player {
   suppression: number;
   /** Rounds fired in the current burst; widens the cone, bleeds off at rest. */
   recoilSteps: number;
+  /** Aiming down the sights: tighter cone, slower on the feet. */
+  aiming: boolean;
   /**
    * Suppression accumulated by rounds fired *this tick*, folded into
    * `suppression` once every command has run. Deferred for the same reason

@@ -399,6 +399,16 @@ export const WEAPON_BASE_SPREAD_RAD = 0.004;
 /** Firing on the move is markedly worse than firing from a halt. */
 export const SPREAD_MOVING_RAD = 0.012;
 
+/**
+ * Aiming down the sights.
+ *
+ * The trade is the whole point: a much tighter cone, in exchange for moving
+ * slowly and seeing less of the world. Taking the shot has to cost something,
+ * or there is no decision in taking it.
+ */
+export const ADS_SPREAD_MULTIPLIER = 0.35;
+export const ADS_MOVE_SPEED_MULTIPLIER = 0.45;
+
 /** Full suppression adds this much cone on top of everything else. */
 export const SPREAD_SUPPRESSED_RAD = 0.010;
 
@@ -540,13 +550,17 @@ export function weaponSpreadRad(options: {
   moving: boolean;
   suppression: number;
   recoilSteps: number;
+  aiming?: boolean;
 }): number {
   const recoil =
     Math.min(options.recoilSteps, RECOIL_MAX_STEPS) * SPREAD_PER_RECOIL_STEP_RAD;
   const suppressed =
     Math.max(0, Math.min(1, options.suppression)) * SPREAD_SUPPRESSED_RAD;
   const moving = options.moving ? SPREAD_MOVING_RAD : 0;
-  return WEAPON_BASE_SPREAD_RAD + recoil + suppressed + moving;
+  const total = WEAPON_BASE_SPREAD_RAD + recoil + suppressed + moving;
+  // Aiming scales everything rather than subtracting a constant, so it helps
+  // most when you are otherwise steady and cannot rescue a sprinting spray.
+  return options.aiming === true ? total * ADS_SPREAD_MULTIPLIER : total;
 }
 
 /** Time of flight to a given range, ignoring drag. */

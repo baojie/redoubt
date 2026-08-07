@@ -263,6 +263,11 @@ export class Simulation {
         return;
       }
 
+      case "aim": {
+        player.aiming = command.aiming === true && player.status === "alive";
+        return;
+      }
+
       case "engage": {
         const rejection = aimAt(world, player, command.target);
         if (rejection !== null) world.reject(player.id, command.t, rejection);

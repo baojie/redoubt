@@ -224,7 +224,19 @@ function inputTick(): void {
       : normaliseSteer(raw);
 
   if (firstPersonView && onFoot) {
-    queuedIntents.push({ t: "look", yaw: firstPerson.yaw, pitch: firstPerson.pitch });
+    // The kick is part of where the rifle is pointing, so it goes to the
+    // server too — otherwise the round would leave along the aim the player
+    // has, not the one the recoil gave them, and fighting the climb would be
+    // a purely cosmetic exercise.
+    queuedIntents.push({
+      t: "look",
+      yaw: firstPerson.yaw,
+      pitch: firstPerson.viewPitch,
+    });
+    if (firstPerson.aiming !== lastSentAiming) {
+      lastSentAiming = firstPerson.aiming;
+      queuedIntents.push({ t: "aim", aiming: firstPerson.aiming });
+    }
     if (firstPerson.triggerHeld) {
       // The server enforces rate of fire and rejects nothing else here, so
       // holding the trigger simply fires as fast as the weapon allows.
@@ -333,6 +345,8 @@ window.addEventListener("resize", resize);
 
 let lastRenderTick = 0;
 let lastFrameMs = 0;
+/** Only send the aim toggle on change — it is a held state, not a stream. */
+let lastSentAiming = false;
 
 function frame(): void {
   requestAnimationFrame(frame);
@@ -359,11 +373,17 @@ function frame(): void {
   lastRenderTick = renderTick;
 
   if (firstPersonView && scene !== null) {
-    scene.placeCamera(selfPos, firstPerson.yaw, firstPerson.pitch);
+    firstPerson.settle(dt);
+    scene.setAiming(world.self?.aiming ?? false, dt);
+    scene.placeCamera(selfPos, firstPerson.yaw, firstPerson.viewPitch);
     scene.syncPlayers(world, renderTick, welcome.playerId, welcome.team as TeamId);
     scene.syncStructures(world, welcome.team as TeamId);
     for (const shot of connection.takeShots()) {
       scene.addTracer(shot.from, shot.to, shot.flightSeconds, shot.team === welcome.team);
+      // Our own rounds kick the view. Driven by the server's confirmation of
+      // the shot rather than by the click, so the kick matches the rounds that
+      // actually left the barrel.
+      if (shot.shooter === welcome.playerId) firstPerson.noteShot();
     }
     scene.render(dt);
     hud.drawWeapon(world.self, world.tick);

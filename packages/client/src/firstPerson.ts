@@ -29,6 +29,17 @@ export class FirstPersonInput {
 
   private firing = false;
   private reloadQueued = false;
+  /** Right mouse held. */
+  aiming = false;
+
+  /**
+   * Recoil, as something you see and fight rather than a number that silently
+   * widens a cone. Each round kicks the view up; it settles back between
+   * shots. The kick is *added to* the aim rather than replacing it, so a
+   * player who pulls down against it is genuinely countering the rise — which
+   * is the skill the mechanic is for.
+   */
+  private kick = 0;
 
   constructor(canvas: HTMLCanvasElement) {
 
@@ -38,16 +49,24 @@ export class FirstPersonInput {
         return;
       }
       if (event.button === 0) this.firing = true;
+      if (event.button === 2) this.aiming = true;
     });
 
     window.addEventListener("mouseup", (event) => {
       if (event.button === 0) this.firing = false;
+      if (event.button === 2) this.aiming = false;
     });
+
+    // Right mouse is the aim button, so the context menu has to go.
+    canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === canvas;
-      // Releasing the mouse should never leave the trigger held down.
-      if (!this.locked) this.firing = false;
+      // Releasing the mouse should never leave the trigger or sights held.
+      if (!this.locked) {
+        this.firing = false;
+        this.aiming = false;
+      }
     });
 
     document.addEventListener("mousemove", (event) => {
@@ -85,8 +104,30 @@ export class FirstPersonInput {
 
   release(): void {
     if (this.locked) document.exitPointerLock();
+    this.firing = false;
+    this.aiming = false;
+  }
+
+  /** Called when a round leaves the barrel, to add the kick. */
+  noteShot(): void {
+    this.kick = Math.min(MAX_KICK_RAD, this.kick + KICK_PER_SHOT_RAD);
+  }
+
+  /** Settle the kick. `dt` is seconds since the last frame. */
+  settle(dt: number): void {
+    this.kick = Math.max(0, this.kick - KICK_RECOVERY_RAD_PER_S * dt);
+  }
+
+  /** Pitch to render at: where the player is looking, plus the muzzle rise. */
+  get viewPitch(): number {
+    return Math.min(MAX_PITCH, this.pitch + this.kick);
   }
 }
+
+/** How far the muzzle climbs per round, and how fast it comes back down. */
+const KICK_PER_SHOT_RAD = 0.012;
+const MAX_KICK_RAD = 0.075;
+const KICK_RECOVERY_RAD_PER_S = 0.16;
 
 /**
  * Turn a WASD vector into a steer direction in world axes, given where the

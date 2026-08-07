@@ -58,6 +58,8 @@ export type Intent =
    */
   | { t: "fire"; renderTick?: number }
   | { t: "reload" }
+  /** Hold to aim down the sights. */
+  | { t: "aim"; aiming: boolean }
   | { t: "spawn"; source: SpawnChoice }
   | { t: "placeRally" }
   | { t: "placeFob" }
@@ -117,6 +119,12 @@ export interface PlayerView {
   y: number;
   /** Which way they are facing, so a 3D client can orient the body. */
   yaw: number;
+  /**
+   * Riding in a vehicle. The renderer skips them: a soldier drawn at the
+   * truck's own position ends up inside the truck, which reads as an empty
+   * vehicle and as a teammate who is not there.
+   */
+  mounted: boolean;
 }
 
 /** Extra fields sent only for the receiving client's own soldier. */
@@ -140,6 +148,8 @@ export interface SelfView extends PlayerView {
   reloadingUntilTick: number;
   /** 0..1. Drives the client's vignette and its spread indicator. */
   suppression: number;
+  /** Authoritative aiming state, so the client's zoom follows the server. */
+  aiming: boolean;
 }
 
 export interface ControlPointView {

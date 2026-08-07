@@ -10,7 +10,13 @@
 
 import { clampToMap, distance, stepToward } from "../math.js";
 import { pushOutOfBox } from "../cover.js";
-import { BODY_RADIUS_M, PLAYER_SPEED_M_PER_TICK, TICK_RATE_HZ, VEHICLE_SPECS } from "../rules.js";
+import {
+  ADS_MOVE_SPEED_MULTIPLIER,
+  BODY_RADIUS_M,
+  PLAYER_SPEED_M_PER_TICK,
+  TICK_RATE_HZ,
+  VEHICLE_SPECS,
+} from "../rules.js";
 import type { Vec2 } from "../math.js";
 import type { World } from "../world.js";
 
@@ -89,6 +95,12 @@ export function updateMovement(world: World): void {
       player.vehicle = null;
     }
 
+    // Aiming down the sights costs mobility. That trade is what makes taking
+    // the shot a decision rather than a free upgrade.
+    const speed = player.aiming
+      ? PLAYER_SPEED_M_PER_TICK * ADS_MOVE_SPEED_MULTIPLIER
+      : PLAYER_SPEED_M_PER_TICK;
+
     // A held direction (human on WASD) takes precedence over a waypoint
     // (bot walking to a place); the command handlers keep them exclusive.
     if (player.steer !== null) {
@@ -96,8 +108,8 @@ export function updateMovement(world: World): void {
         world,
         clampToMap(
           {
-            x: player.pos.x + player.steer.x * PLAYER_SPEED_M_PER_TICK,
-            y: player.pos.y + player.steer.y * PLAYER_SPEED_M_PER_TICK,
+            x: player.pos.x + player.steer.x * speed,
+            y: player.pos.y + player.steer.y * speed,
           },
           mapSize,
         ),
@@ -107,10 +119,7 @@ export function updateMovement(world: World): void {
     }
 
     if (player.waypoint === null) continue;
-    const stepped = clampToMap(
-      stepToward(player.pos, player.waypoint, PLAYER_SPEED_M_PER_TICK),
-      mapSize,
-    );
+    const stepped = clampToMap(stepToward(player.pos, player.waypoint, speed), mapSize);
     const before = distance(player.pos, player.waypoint);
     const next = resolveCollisions(world, stepped, BODY_RADIUS_M);
     player.pos = next;

@@ -113,6 +113,7 @@ export function hashState(state: GameState): number {
     h.float(p.aimYaw, ANGLE_QUANTUM).float(p.aimPitch, ANGLE_QUANTUM);
     h.int(p.magazine).int(p.reloadingUntilTick);
     h.scalar(p.suppression).scalar(p.recoilSteps).scalar(p.pendingSuppression);
+    h.bool(p.aiming);
     // Position history feeds lag-compensated hit registration, so a
     // divergence in it is a divergence in who gets shot.
     h.int(p.history.length);

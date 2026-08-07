@@ -87,6 +87,7 @@ export class Hud {
       "WASD    move",
       "mouse   look          (3D)",
       "click   fire          (3D)",
+      "right   aim down sights (3D)",
       "R       reload        (3D)",
       "Tab     3D / map view",
       "click   engage nearest enemy (map)",

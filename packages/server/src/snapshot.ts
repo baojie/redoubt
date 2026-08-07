@@ -116,6 +116,7 @@ export class ClientView {
         x: quantise(player.pos.x),
         y: quantise(player.pos.y),
         yaw: quantise(player.aimYaw),
+        mounted: player.vehicle !== null,
       };
       if (this.changed(this.players, player.id, view)) players.push(view);
     }
@@ -277,6 +278,7 @@ function selfView(player: Player): SelfView {
     x: quantise(player.pos.x),
     y: quantise(player.pos.y),
     yaw: quantise(player.aimYaw),
+    mounted: player.vehicle !== null,
     health: Math.round(player.health),
     ammo: Math.round(player.ammo),
     vehicle: player.vehicle,
@@ -287,5 +289,6 @@ function selfView(player: Player): SelfView {
     magazine: player.magazine,
     reloadingUntilTick: player.reloadingUntilTick,
     suppression: quantise(player.suppression),
+    aiming: player.aiming,
   };
 }

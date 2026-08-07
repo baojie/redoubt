@@ -75,6 +75,8 @@ export function intentToCommand(player: PlayerId, intent: Intent): Command | nul
     }
     case "reload":
       return { t: "reload", player };
+    case "aim":
+      return { t: "aim", player, aiming: intent.aiming === true };
 
     case "spawn": {
       const source = intent.source;

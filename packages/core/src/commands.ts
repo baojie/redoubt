@@ -59,6 +59,8 @@ export type Command =
    */
   | { t: "fire"; player: PlayerId; renderTick?: number }
   | { t: "reload"; player: PlayerId }
+  /** Hold to aim down the sights. Held state, like steering. */
+  | { t: "aim"; player: PlayerId; aiming: boolean }
   /**
    * Swing onto a body and fire. What a bot issues — a convenience over
    * look+fire, with no privileged path to a hit: the round still has to fly.

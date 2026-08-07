@@ -112,6 +112,29 @@ describe("weapon spread", () => {
     expect(everything).toBeGreaterThan(justMoving);
   });
 
+  it("is tightened by aiming, but cannot rescue a sprinting spray", () => {
+    // Aiming scales the whole cone rather than subtracting a constant, so it
+    // helps most when you are already steady — which is the behaviour that
+    // makes standing still and aiming the *good* option rather than the only
+    // option.
+    const steady = { moving: false, suppression: 0, recoilSteps: 0 };
+    const messy = { moving: true, suppression: 1, recoilSteps: rules.RECOIL_MAX_STEPS };
+
+    const steadyGain =
+      rules.weaponSpreadRad(steady) / rules.weaponSpreadRad({ ...steady, aiming: true });
+    const messyGain =
+      rules.weaponSpreadRad(messy) / rules.weaponSpreadRad({ ...messy, aiming: true });
+
+    expect(rules.weaponSpreadRad({ ...steady, aiming: true })).toBeLessThan(
+      rules.weaponSpreadRad(steady),
+    );
+    // Same proportional help, but from a far worse starting point.
+    expect(steadyGain).toBeCloseTo(messyGain, 6);
+    expect(rules.weaponSpreadRad({ ...messy, aiming: true })).toBeGreaterThan(
+      rules.weaponSpreadRad(steady),
+    );
+  });
+
   it("saturates recoil rather than growing without bound", () => {
     const atCap = rules.weaponSpreadRad({
       moving: false,

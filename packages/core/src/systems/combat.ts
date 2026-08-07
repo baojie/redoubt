@@ -112,6 +112,7 @@ export function fire(world: World, shooter: Player, renderTick: number): FireRej
     moving: isMoving(shooter),
     suppression: shooter.suppression,
     recoilSteps: shooter.recoilSteps,
+    aiming: shooter.aiming,
   });
   const aim = directionFromAngles(shooter.aimYaw, shooter.aimPitch);
   const direction = applySpread(aim, spread, world.rng.next(), world.rng.next());
@@ -201,6 +202,8 @@ export function beginReload(world: World, player: Player): void {
   if (player.magazine >= MAGAZINE_ROUNDS) return;
   if (player.ammo <= 0) return;
   player.reloadingUntilTick = world.state.tick + RELOAD_TICKS;
+  // Both hands on the magazine: you cannot be looking down the sights.
+  player.aiming = false;
 }
 
 /** Complete reloads, and bleed off recoil and suppression. */

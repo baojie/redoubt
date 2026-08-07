@@ -140,6 +140,40 @@ describe("waypoints", () => {
   });
 });
 
+describe("aiming down the sights", () => {
+  it("costs mobility, which is what makes taking the shot a decision", () => {
+    const h = harness();
+    const hip = h.team(0)[0]!;
+    const aimed = h.team(0)[1]!;
+    h.place(hip.id, OPEN_GROUND);
+    h.place(aimed.id, OPEN_GROUND);
+
+    h.tick([
+      { t: "steer", player: hip.id, dir: { x: 1, y: 0 } },
+      { t: "steer", player: aimed.id, dir: { x: 1, y: 0 } },
+      { t: "aim", player: aimed.id, aiming: true },
+    ]);
+    h.run(rules.secondsToTicks(4));
+
+    const hipTravel = hip.pos.x - OPEN_GROUND.x;
+    const aimedTravel = aimed.pos.x - OPEN_GROUND.x;
+    expect(aimedTravel).toBeGreaterThan(0);
+    expect(aimedTravel).toBeCloseTo(hipTravel * rules.ADS_MOVE_SPEED_MULTIPLIER, 1);
+  });
+
+  it("is dropped by a reload — both hands are on the magazine", () => {
+    const h = harness();
+    const player = h.team(0)[0]!;
+    h.place(player.id, OPEN_GROUND);
+    h.tick([{ t: "aim", player: player.id, aiming: true }]);
+    expect(player.aiming).toBe(true);
+
+    player.magazine = 1;
+    h.tick([{ t: "reload", player: player.id }]);
+    expect(player.aiming).toBe(false);
+  });
+});
+
 describe("cover", () => {
   it("stops a soldier walking into a wall", () => {
     const h = harness();

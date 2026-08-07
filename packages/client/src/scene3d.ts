@@ -110,7 +110,7 @@ export class Scene3D {
     this.scene.background = new THREE.Color(SKY);
     this.scene.fog = new THREE.Fog(SKY, FOG_NEAR, FOG_FAR);
 
-    this.camera = new THREE.PerspectiveCamera(75, 1, 0.1, VIEW_DISTANCE_M);
+    this.camera = new THREE.PerspectiveCamera(HIP_FOV_DEG, 1, 0.1, VIEW_DISTANCE_M);
 
     // The same terrain the server is adjudicating against, rebuilt from seed.
     this.terrain = createTerrain(terrainSeed, mainBases, mapSizeM);
@@ -126,6 +126,19 @@ export class Scene3D {
     );
     this.tracerLines.frustumCulled = false;
     this.scene.add(this.tracerLines);
+  }
+
+  /**
+   * Narrow the field of view while aiming.
+   *
+   * Eased rather than snapped: an instant FOV change reads as a teleport, and
+   * the ease is also what sells the weight of bringing a rifle up.
+   */
+  setAiming(aiming: boolean, dt: number): void {
+    const target = aiming ? ADS_FOV_DEG : HIP_FOV_DEG;
+    const rate = Math.min(1, dt * ADS_EASE_PER_S);
+    this.camera.fov += (target - this.camera.fov) * rate;
+    this.camera.updateProjectionMatrix();
   }
 
   /** How many player bodies are currently in the scene. Debug aid. */
@@ -231,6 +244,9 @@ export class Scene3D {
     for (const player of world.players.values()) {
       if (player.id === selfId) continue;
       if (player.status === "deploying") continue;
+      // Riding in a vehicle: the body would be drawn at the vehicle's own
+      // position, i.e. inside it. The vehicle is the thing to look at.
+      if (player.mounted) continue;
       seen.add(player.id);
 
       let body = this.bodies.get(player.id);
@@ -499,6 +515,11 @@ export class Scene3D {
 
 /** How much of its flight a tracer streak spans. */
 const STREAK_FRACTION = 0.12;
+
+/** Field of view from the hip, and down the sights. */
+const HIP_FOV_DEG = 75;
+const ADS_FOV_DEG = 42;
+const ADS_EASE_PER_S = 12;
 
 /** Full leg swings per metre walked. */
 const WALK_CYCLES_PER_M = 0.55;
