@@ -1,0 +1,13 @@
+{
+  "name": "@redoubt/sim",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless batch match runner and balance statistics CLI.",
+  "scripts": {
+    "sim": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@redoubt/core": "workspace:*"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "redoubt",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A tactical team-shooter rules engine, inspired by Squad and Project Reality.",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "sim": "pnpm --filter @redoubt/sim run sim --",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/sim/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "fast-check": "^3.23.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
