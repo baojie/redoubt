@@ -13,18 +13,28 @@ graphics at all — and the game is already playable enough to measure.
 |---|---|
 | **M0** — deterministic rules engine + headless match report | **done** |
 | **M1** — layered bots and balance harness | batch harness done, bots are a placeholder driver |
-| M2 — authoritative server + 2D client | not started |
+| **M2** — authoritative server + 2D playable client | **done** |
 | M3 — 3D first person | not started |
 | M4 — vehicles and logistics in 3D | not started |
 
-## Try it
+## Play it
 
 ```bash
-pnpm install
-pnpm sim --seed 42       # play one match, print a battle report
-pnpm sim --matches 1000  # balance statistics over a thousand matches
-pnpm test                # unit, property and balance-gate tests
-pnpm typecheck
+./run.sh setup   # first time only
+./run.sh play    # starts the server and the client
+```
+
+Then open <http://localhost:5173/>. You take over a soldier a bot was already
+playing; the rest of both teams stay under bot control. WASD to move, click to
+engage, `/` for the full key list.
+
+## Watch it instead
+
+```bash
+./run.sh              # one match, headless, prints a battle report
+./run.sh batch 1000   # balance statistics over a thousand matches
+./run.sh test         # unit, property and balance-gate tests
+./run.sh check        # typecheck, then tests
 ```
 
 A 1000-match run takes about 40 seconds and currently reports a 49.8% / 50.2%
@@ -34,8 +44,12 @@ win split with a mean match length of 42.6 minutes.
 
 ```
 packages/
-  core/   pure deterministic rules engine — no rendering, network, I/O or clocks
-  sim/    headless match runner, battle report, batch balance statistics
+  core/       pure deterministic rules engine — no rendering, network, I/O or clocks
+  bots/       decision layer: reads state, returns commands. fills empty slots
+  protocol/   the wire format, shared by server and client and owned by neither
+  server/     authoritative 20Hz simulation host
+  client/     Canvas 2D top-down view. predicts, never decides
+  sim/        headless match runner, battle report, batch balance statistics
 ```
 
 `packages/core` is the only part that matters long term. It has zero
@@ -67,13 +81,30 @@ Combat is a hit-probability stand-in, not ballistics — real projectiles,
 suppression and lag-compensated hit registration are M3's job and are meant to
 drop in without touching anything above.
 
+## Netcode
+
+Server authoritative at 20 Hz, snapshots at 10 Hz, per PLAN §4. The client
+predicts its own movement and replays unacknowledged input over each
+correction; everyone else is interpolated one snapshot interval in the past.
+Snapshots are culled at 500 m and diffed per entity, which currently costs
+about 13 KB/s per client against a 30 KB/s budget.
+
+The diagnostics panel in the top-right is the thing to watch: **prediction
+error** should sit at 0.00 m. Anything else means the client and server
+disagree about movement, which is a bug rather than a network condition.
+
 ## Known gaps
 
-- The match driver in `packages/sim/src/driver.ts` is a placeholder for M1's
-  real bots. It plays the objective and runs the logistics loop competently,
-  but it never assaults an enemy FOB, so FOB destruction — a rule that works
-  and is unit-tested — is not being exercised in batch statistics.
-- No squad leader ever repositions a FOB as the front moves.
+- `packages/bots` is still the M0 placeholder driver. It plays the objective
+  and runs the logistics loop competently, but it never assaults an enemy FOB,
+  so FOB destruction — a rule that works and is unit-tested — is not exercised
+  in batch statistics, and the FOB-lifetime and radio-ticket figures in those
+  statistics are therefore unmeasured rather than good.
+- No squad leader, human or bot, ever repositions a FOB as the front moves.
+- Vehicles exist and work, but nothing in the client renders their interior or
+  seat assignment — you can drive and haul supply, and that is all.
+- JSON on the wire. Fine at this scale, and the first thing to change if the
+  bandwidth number starts climbing.
 
 ## Legal
 
