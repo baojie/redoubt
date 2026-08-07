@@ -34,6 +34,7 @@ export function downPlayer(world: World, player: Player, by: PlayerId | null): v
   player.status = "downed";
   player.health = 0;
   player.waypoint = null;
+  player.steer = null;
   player.reviveProgressTicks = 0;
   player.bleedoutAtTick = world.state.tick + BLEEDOUT_TICKS;
   if (player.vehicle !== null) ejectFromVehicle(world, player);
@@ -60,6 +61,7 @@ export function killPlayer(
   player.status = "deploying";
   player.health = 0;
   player.waypoint = null;
+  player.steer = null;
   player.reviveProgressTicks = 0;
   player.deployingSinceTick = world.state.tick;
   player.deaths++;
@@ -214,6 +216,7 @@ function enterWorld(
   player.ammo = PLAYER_MAX_AMMO;
   player.pos = cloneVec2(at);
   player.waypoint = null;
+  player.steer = null;
   player.reviveProgressTicks = 0;
   world.emit({
     t: "playerSpawned",

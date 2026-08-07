@@ -11,7 +11,7 @@
 import type { Command } from "./commands.js";
 import type { GameEvent } from "./events.js";
 import { hashState } from "./hash.js";
-import { withinRange, type Vec2 } from "./math.js";
+import { normalise, withinRange, type Vec2 } from "./math.js";
 import { BUILD_REACH_M, STAGING_TICKS } from "./rules.js";
 import { createInitialState, type MatchOptions } from "./state.js";
 import type { GameState, PlayerId } from "./types.js";
@@ -140,11 +140,29 @@ export class Simulation {
           return;
         }
         player.waypoint = { x: command.to.x, y: command.to.y };
+        player.steer = null;
+        return;
+      }
+
+      case "steer": {
+        if (player.status !== "alive") {
+          world.reject(player.id, command.t, "notAlive");
+          return;
+        }
+        if (player.vehicle !== null) {
+          world.reject(player.id, command.t, "mounted");
+          return;
+        }
+        // Normalising here, not at the caller, means a client cannot travel
+        // faster by sending a longer vector.
+        player.steer = normalise(command.dir);
+        player.waypoint = null;
         return;
       }
 
       case "halt": {
         player.waypoint = null;
+        player.steer = null;
         // A driver halting stops the vehicle, not just their own legs —
         // otherwise a truck ordered to stop keeps rolling past its FOB.
         if (player.vehicle !== null) {

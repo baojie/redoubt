@@ -45,8 +45,18 @@ export interface Player {
   role: PlayerRole;
   status: PlayerStatus;
   pos: Vec2;
-  /** Standing move order. Persists across ticks until replaced or cleared. */
+  /**
+   * Standing move order — walk to a point. What a bot issues.
+   * Mutually exclusive with `steer`: the last command issued wins.
+   */
   waypoint: Vec2 | null;
+  /**
+   * Standing steer order — a unit vector to keep walking along. What a human
+   * on WASD issues. Held until replaced, so a dropped packet does not stop the
+   * soldier dead, and so the client can predict from the same input the server
+   * will apply.
+   */
+  steer: Vec2 | null;
   health: number;
   ammo: number;
   /** Tick at which a downed player expires into a real death. */

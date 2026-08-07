@@ -50,6 +50,16 @@ export function stepToward(from: Vec2, to: Vec2, maxStep: number): Vec2 {
   return { x: from.x + dx * scale, y: from.y + dy * scale };
 }
 
+/**
+ * Scale a vector to unit length. Returns null for a zero-ish vector rather
+ * than dividing by zero — callers treat that as "no direction".
+ */
+export function normalise(v: Vec2): Vec2 | null {
+  const length = Math.hypot(v.x, v.y);
+  if (!Number.isFinite(length) || length <= 0) return null;
+  return { x: v.x / length, y: v.y / length };
+}
+
 export function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
   if (value > max) return max;

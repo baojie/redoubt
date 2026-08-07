@@ -121,6 +121,7 @@ export function createInitialState(options: MatchOptions): GameState {
         status: "alive",
         pos: cloneVec2(mainBase),
         waypoint: null,
+        steer: null,
         health: PLAYER_MAX_HEALTH,
         ammo: PLAYER_MAX_AMMO,
         bleedoutAtTick: 0,

@@ -101,6 +101,8 @@ export function hashState(state: GameState): number {
     h.pos(p.pos.x).pos(p.pos.y);
     h.bool(p.waypoint !== null);
     if (p.waypoint !== null) h.pos(p.waypoint.x).pos(p.waypoint.y);
+    h.bool(p.steer !== null);
+    if (p.steer !== null) h.pos(p.steer.x).pos(p.steer.y);
     h.scalar(p.health).scalar(p.ammo);
     h.int(p.bleedoutAtTick).int(p.deployingSinceTick);
     h.maybeId(p.vehicle).int(p.reviveProgressTicks).int(p.nextShotAtTick);

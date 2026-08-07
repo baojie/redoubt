@@ -45,6 +45,19 @@ export function updateMovement(world: World): void {
       player.vehicle = null;
     }
 
+    // A held direction (human on WASD) takes precedence over a waypoint
+    // (bot walking to a place); the command handlers keep them exclusive.
+    if (player.steer !== null) {
+      player.pos = clampToMap(
+        {
+          x: player.pos.x + player.steer.x * PLAYER_SPEED_M_PER_TICK,
+          y: player.pos.y + player.steer.y * PLAYER_SPEED_M_PER_TICK,
+        },
+        mapSize,
+      );
+      continue;
+    }
+
     if (player.waypoint === null) continue;
     const next = clampToMap(
       stepToward(player.pos, player.waypoint, PLAYER_SPEED_M_PER_TICK),

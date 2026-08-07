@@ -20,6 +20,13 @@ export type SpawnSource =
 export type Command =
   /** Walk toward a point. Persists until replaced — one waypoint per player. */
   | { t: "move"; player: PlayerId; to: Vec2 }
+  /**
+   * Walk along a direction until told otherwise — the WASD form of `move`.
+   * `dir` need not be normalised; a zero vector stops. Persisting rather than
+   * being per-tick means a dropped input packet does not stutter the soldier,
+   * and the client can predict forward from the last direction it sent.
+   */
+  | { t: "steer"; player: PlayerId; dir: Vec2 }
   /** Stop moving. */
   | { t: "halt"; player: PlayerId }
   /** Enter the world from the chosen spawn, once the timer allows. */
