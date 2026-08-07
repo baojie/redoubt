@@ -319,24 +319,114 @@ export const RESUPPLY_REACH_M = 5;
 export const RESUPPLY_AMMO_POINT_COST_PER_UNIT = 1;
 
 // ---------------------------------------------------------------------------
-// Simplified combat model (M0/M1 — replaced by real ballistics in M3)
+// Ballistics (M3)
 // ---------------------------------------------------------------------------
 
+/**
+ * How far a bot will start an engagement. Not a weapon limit — rounds fly as
+ * far as physics takes them — just the range at which a bot judges a target
+ * worth shooting at.
+ */
 export const ENGAGEMENT_MAX_RANGE_M = 200;
-/** Hit chance per shot at point-blank range. */
-export const HIT_CHANCE_AT_MIN_RANGE = 0.35;
-/** Hit chance per shot at maximum engagement range. */
-export const HIT_CHANCE_AT_MAX_RANGE = 0.04;
+
 export const DAMAGE_PER_HIT = 45;
 /** Firing costs ammo; a dry soldier cannot shoot. */
 export const AMMO_PER_ENGAGEMENT = 1;
 
 /**
  * Rate of fire. Enforced in `core` rather than left to the caller's cadence,
- * so a client that spams the engage command gains nothing.
+ * so a client that spams the fire command gains nothing.
  */
 export const ENGAGEMENT_COOLDOWN_S = 0.5;
 export const ENGAGEMENT_COOLDOWN_TICKS = secondsToTicks(ENGAGEMENT_COOLDOWN_S);
+
+/**
+ * How far back the server will rewind for hit registration.
+ *
+ * One second covers any ping worth playing on. Longer would let a client on a
+ * deliberately terrible connection shoot at where you were a moment ago and
+ * still hit — the compensation window is a fairness budget, not a courtesy.
+ */
+export const LAG_COMPENSATION_SECONDS = 1;
+export const LAG_COMPENSATION_TICKS = secondsToTicks(LAG_COMPENSATION_SECONDS);
+
+export const GRAVITY_MPS2 = 9.81;
+
+/** Muzzle velocity. At 780 m/s a round crosses 200 m in about a quarter second. */
+export const MUZZLE_VELOCITY_MPS = 780;
+
+/** Rounds a magazine holds, and how long a reload takes. */
+export const MAGAZINE_ROUNDS = 30;
+export const RELOAD_DURATION_S = 3.5;
+export const RELOAD_TICKS = secondsToTicks(RELOAD_DURATION_S);
+
+/** Beyond this a round is retired; nothing on a 1 km map is further. */
+export const BULLET_MAX_RANGE_M = 900;
+
+/**
+ * Trajectory is marched in this many segments.
+ *
+ * Deliberately a *segmented analytic march*, not a per-tick projectile entity.
+ * Stepping projectiles would cost a hit test per bullet per tick and make the
+ * thousand-match balance harness — the thing the whole project's iteration
+ * speed rests on — an order of magnitude slower. Resolving the whole flight at
+ * the moment of firing costs one march per shot and gives the same answer.
+ */
+export const TRAJECTORY_SEGMENTS = 12;
+
+// --- Where the rounds actually go -----------------------------------------
+
+/**
+ * Cone half-angle a round can depart by, in radians, before modifiers.
+ *
+ * This constant, not a dice roll, is now what decides whether you hit: the M0
+ * model asked "what are the odds at this range", this one asks "where did the
+ * round go".
+ *
+ * 8 mrad is far wider than a rifle's mechanical accuracy, and deliberately so:
+ * it is standing in for everything M3 does not model yet — no distinction
+ * between aimed and hip fire, no stance, no breathing, no fatigue. Tightening
+ * it belongs with adding those, not before.
+ *
+ * Calibrated against the model it replaced, which hit 4% of the time at 200 m.
+ * Dispersion falls on the area of the cone, so hit chance at range R goes as
+ * (bodyRadius / (R * spread))²; at 200 m that lands in the same place. Close
+ * range is far deadlier than the old curve allowed, which is correct — a rifle
+ * at thirty metres should not miss two shots in three.
+ */
+export const WEAPON_BASE_SPREAD_RAD = 0.004;
+
+/** Firing on the move is markedly worse than firing from a halt. */
+export const SPREAD_MOVING_RAD = 0.012;
+
+/** Full suppression adds this much cone on top of everything else. */
+export const SPREAD_SUPPRESSED_RAD = 0.010;
+
+/** Each round already fired in the current burst adds this much. */
+export const SPREAD_PER_RECOIL_STEP_RAD = 0.0016;
+/** Recoil accumulation saturates here. */
+export const RECOIL_MAX_STEPS = 6;
+/** Recoil bleeds off this fast once you stop firing, in steps per second. */
+export const RECOIL_RECOVERY_PER_S = 3;
+
+// ---------------------------------------------------------------------------
+// Suppression — PLAN §5 calls this the soul of the feel
+// ---------------------------------------------------------------------------
+
+/**
+ * A round passing within this distance of a soldier suppresses them. It does
+ * not have to hit, or even come close by any sane standard — being shot *at*
+ * is the mechanic, and that is the point. Suppression is what makes a machine
+ * gun useful without killing anybody, and what makes a squad that has been
+ * pinned unable to shoot back accurately.
+ */
+export const SUPPRESSION_RADIUS_M = 4;
+
+/** Suppression added per round that passes close, on a 0..1 scale. */
+export const SUPPRESSION_PER_ROUND = 0.35;
+
+/** Suppression decays at this fraction per second once rounds stop landing. */
+export const SUPPRESSION_DECAY_PER_S = 0.5;
 
 // ---------------------------------------------------------------------------
 // Vehicles (PLAN §2.5)
@@ -418,9 +508,34 @@ export function captureSpeedMultiplier(advantage: number): number {
   return Math.min(raw, CAPTURE_MAX_SPEED_MULTIPLIER);
 }
 
-/** Linear falloff of hit chance with range, for the M0/M1 combat stand-in. */
-export function hitChanceAtRange(rangeM: number): number {
-  if (rangeM >= ENGAGEMENT_MAX_RANGE_M) return 0;
-  const t = Math.max(0, rangeM) / ENGAGEMENT_MAX_RANGE_M;
-  return HIT_CHANCE_AT_MIN_RANGE + (HIT_CHANCE_AT_MAX_RANGE - HIT_CHANCE_AT_MIN_RANGE) * t;
+/**
+ * Total cone half-angle for a shot, given the shooter's situation.
+ *
+ * Everything that makes shooting harder lands here rather than in a hit-chance
+ * table, so the effects compose the way a player expects: running while being
+ * shot at while spraying is bad three times over, and each cause is separately
+ * visible and separately fixable.
+ */
+export function weaponSpreadRad(options: {
+  moving: boolean;
+  suppression: number;
+  recoilSteps: number;
+}): number {
+  const recoil =
+    Math.min(options.recoilSteps, RECOIL_MAX_STEPS) * SPREAD_PER_RECOIL_STEP_RAD;
+  const suppressed =
+    Math.max(0, Math.min(1, options.suppression)) * SPREAD_SUPPRESSED_RAD;
+  const moving = options.moving ? SPREAD_MOVING_RAD : 0;
+  return WEAPON_BASE_SPREAD_RAD + recoil + suppressed + moving;
+}
+
+/** Time of flight to a given range, ignoring drag. */
+export function flightTimeSeconds(rangeM: number): number {
+  return rangeM / MUZZLE_VELOCITY_MPS;
+}
+
+/** How far a round falls over a given range. Pure ballistics, no fudge. */
+export function bulletDropM(rangeM: number): number {
+  const t = flightTimeSeconds(rangeM);
+  return 0.5 * GRAVITY_MPS2 * t * t;
 }

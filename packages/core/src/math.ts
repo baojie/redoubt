@@ -74,3 +74,87 @@ export function clampToMap(p: Vec2, mapSizeM: number): Vec2 {
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
+
+// ---------------------------------------------------------------------------
+// Three dimensions
+// ---------------------------------------------------------------------------
+
+/**
+ * The rules engine reasons about position on the ground plane — capture
+ * radii, FOB spacing, supply range are all flat measurements and stay that
+ * way. Height enters in exactly one place: ballistics, which has to know
+ * whether a hill is in the way and how far a round drops on the way there.
+ */
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export function vec3(x: number, y: number, z: number): Vec3 {
+  return { x, y, z };
+}
+
+export function addScaled3(a: Vec3, b: Vec3, scale: number): Vec3 {
+  return { x: a.x + b.x * scale, y: a.y + b.y * scale, z: a.z + b.z * scale };
+}
+
+export function sub3(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+export function length3(v: Vec3): number {
+  return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+export function distance3(a: Vec3, b: Vec3): number {
+  return length3(sub3(a, b));
+}
+
+export function normalise3(v: Vec3): Vec3 | null {
+  const length = length3(v);
+  if (!Number.isFinite(length) || length <= 0) return null;
+  return { x: v.x / length, y: v.y / length, z: v.z / length };
+}
+
+export function dot3(a: Vec3, b: Vec3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+/** Aim angles to a unit direction. Yaw is measured from +x toward +y. */
+export function directionFromAngles(yaw: number, pitch: number): Vec3 {
+  const cosPitch = Math.cos(pitch);
+  return {
+    x: Math.cos(yaw) * cosPitch,
+    y: Math.sin(yaw) * cosPitch,
+    z: Math.sin(pitch),
+  };
+}
+
+/** Unit direction to aim angles. The inverse of `directionFromAngles`. */
+export function anglesFromDirection(d: Vec3): { yaw: number; pitch: number } {
+  const flat = Math.hypot(d.x, d.y);
+  return { yaw: Math.atan2(d.y, d.x), pitch: Math.atan2(d.z, flat) };
+}
+
+/**
+ * Shortest distance from a point to the segment a→b, and where along it.
+ * Used for hit tests and for deciding who a round passed close enough to
+ * suppress.
+ */
+export function pointToSegment3(
+  point: Vec3,
+  a: Vec3,
+  b: Vec3,
+): { distance: number; t: number } {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const abz = b.z - a.z;
+  const lengthSq = abx * abx + aby * aby + abz * abz;
+  if (lengthSq <= 0) return { distance: distance3(point, a), t: 0 };
+  let t =
+    ((point.x - a.x) * abx + (point.y - a.y) * aby + (point.z - a.z) * abz) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+  const closest = { x: a.x + abx * t, y: a.y + aby * t, z: a.z + abz * t };
+  return { distance: distance3(point, closest), t };
+}

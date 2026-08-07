@@ -71,8 +71,40 @@ export interface Player {
   vehicle: VehicleId | null;
   /** Accumulated revive work being applied to this player, in ticks. */
   reviveProgressTicks: number;
+  /**
+   * Where this soldier is looking. Yaw runs from +x toward +y; pitch is
+   * positive upward. Rounds leave along this direction plus dispersion, so it
+   * is authoritative state, not a rendering detail.
+   */
+  aimYaw: number;
+  aimPitch: number;
+  /** Rounds left in the magazine. Distinct from `ammo`, the reserve. */
+  magazine: number;
+  /** Tick a reload completes, or 0 when not reloading. */
+  reloadingUntilTick: number;
+  /**
+   * How rattled this soldier is, 0..1. Raised by rounds passing close, decays
+   * over time, widens their dispersion. PLAN §5 calls this the soul of the
+   * feel — being shot at matters even when the rounds miss.
+   */
+  suppression: number;
+  /** Rounds fired in the current burst; widens the cone, bleeds off at rest. */
+  recoilSteps: number;
+  /**
+   * Suppression accumulated by rounds fired *this tick*, folded into
+   * `suppression` once every command has run. Deferred for the same reason
+   * damage is: applying it immediately would let whichever team's commands are
+   * processed first rattle the other before they shoot, every tick, forever.
+   */
+  pendingSuppression: number;
   /** Rate-of-fire gate: the earliest tick this player may fire again. */
   nextShotAtTick: number;
+  /**
+   * Recent ground positions, newest last, for lag-compensated hit
+   * registration. The server rewinds to what the shooter actually saw before
+   * testing a shot — PLAN §4.
+   */
+  history: Vec2[];
   /**
    * Who last put a round into this player, for kill credit. Set when damage
    * lands; read when the casualty is resolved at the end of the tick.
@@ -260,6 +292,11 @@ export interface GameState {
   outcome: MatchOutcome;
 
   rng: RngState;
+  /**
+   * Seed for the procedural terrain. Held separately from the RNG state, which
+   * advances every tick — the ground must not move.
+   */
+  terrainSeed: number;
   map: MapDefinition;
   /** The lane RAAS drew this match. */
   lane: Lane;

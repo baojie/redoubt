@@ -25,6 +25,8 @@ const FNV_PRIME = 0x01000193;
 const POSITION_QUANTUM = 1000;
 /** Supply pools and health quantise to a thousandth of a point. */
 const SCALAR_QUANTUM = 1000;
+/** Aim angles: a hundred-thousandth of a radian is far below any sight picture. */
+const ANGLE_QUANTUM = 100000;
 
 export class Hasher {
   private h = FNV_OFFSET_BASIS;
@@ -84,6 +86,7 @@ export function hashState(state: GameState): number {
   h.str(state.phase);
   h.str(state.outcome.kind);
   h.int(state.rng.seed);
+  h.int(state.terrainSeed);
   h.str(state.lane.name);
   h.int(state.nextEntityId);
   h.bool(state.doubleNeutral);
@@ -107,6 +110,13 @@ export function hashState(state: GameState): number {
     h.int(p.bleedoutAtTick).int(p.deployingSinceTick);
     h.maybeId(p.vehicle).int(p.reviveProgressTicks).int(p.nextShotAtTick);
     h.maybeId(p.lastHitBy);
+    h.float(p.aimYaw, ANGLE_QUANTUM).float(p.aimPitch, ANGLE_QUANTUM);
+    h.int(p.magazine).int(p.reloadingUntilTick);
+    h.scalar(p.suppression).scalar(p.recoilSteps).scalar(p.pendingSuppression);
+    // Position history feeds lag-compensated hit registration, so a
+    // divergence in it is a divergence in who gets shot.
+    h.int(p.history.length);
+    for (const past of p.history) h.pos(past.x).pos(past.y);
     h.int(p.kills).int(p.deaths);
   }
 

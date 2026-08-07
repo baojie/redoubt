@@ -56,7 +56,7 @@ export function downPlayer(world: World, player: Player, by: PlayerId | null): v
 export function killPlayer(
   world: World,
   player: Player,
-  cause: "bleedout" | "gaveUp",
+  cause: "bleedout" | "gaveUp" | "finished",
 ): void {
   if (player.status === "deploying") return;
   player.status = "deploying";
@@ -105,9 +105,22 @@ function ejectFromVehicle(world: World, player: Player): void {
  */
 export function resolveHits(world: World): void {
   for (const player of world.state.players) {
-    if (player.status !== "alive") continue;
-    if (player.health > 0) continue;
-    downPlayer(world, player, player.lastHitBy);
+    // Suppression lands at the same moment for everyone, so being shot at
+    // never depends on whose commands the server happened to run first.
+    if (player.pendingSuppression > 0) {
+      player.suppression = Math.min(1, player.suppression + player.pendingSuppression);
+      player.pendingSuppression = 0;
+    }
+
+    if (player.status === "alive") {
+      if (player.health > 0) continue;
+      downPlayer(world, player, player.lastHitBy);
+      continue;
+    }
+    // A body that took another round while down is finished.
+    if (player.status === "downed" && player.health < 0) {
+      killPlayer(world, player, "finished");
+    }
   }
 }
 

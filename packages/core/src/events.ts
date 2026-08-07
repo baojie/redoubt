@@ -116,7 +116,7 @@ export type GameEvent =
       tick: number;
       player: PlayerId;
       team: TeamId;
-      cause: "bleedout" | "gaveUp";
+      cause: "bleedout" | "gaveUp" | "finished";
     }
   | {
       t: "supplyLoaded";
@@ -141,6 +141,20 @@ export type GameEvent =
       vehicle: VehicleId;
       team: TeamId;
       kind: VehicleType;
+    }
+  | {
+      /**
+       * One round, from muzzle to impact. Carries time of flight so a client
+       * can draw a tracer that arrives when the round actually did.
+       */
+      t: "shotFired";
+      tick: number;
+      shooter: PlayerId;
+      team: TeamId;
+      from: { x: number; y: number; z: number };
+      to: { x: number; y: number; z: number };
+      flightSeconds: number;
+      hit: PlayerId | null;
     }
   | {
       t: "commandRejected";

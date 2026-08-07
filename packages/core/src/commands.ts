@@ -47,7 +47,22 @@ export type Command =
     }
   /** Contribute build work this tick. Must be within reach of the site. */
   | { t: "build"; player: PlayerId; deployable: DeployableId }
-  /** Shoot at someone. The simplified M0/M1 combat model resolves it. */
+  /**
+   * Point the rifle. What a mouse produces, and authoritative state — rounds
+   * leave along this direction, so it is not a rendering detail.
+   */
+  | { t: "look"; player: PlayerId; yaw: number; pitch: number }
+  /**
+   * Pull the trigger along the current aim. `renderTick` is the tick the
+   * shooter believes they were looking at; the server clamps it into the
+   * lag-compensation window before rewinding.
+   */
+  | { t: "fire"; player: PlayerId; renderTick?: number }
+  | { t: "reload"; player: PlayerId }
+  /**
+   * Swing onto a body and fire. What a bot issues — a convenience over
+   * look+fire, with no privileged path to a hit: the round still has to fly.
+   */
   | { t: "engage"; player: PlayerId; target: PlayerId }
   /** Work on reviving a downed teammate within reach. */
   | { t: "revive"; player: PlayerId; target: PlayerId }

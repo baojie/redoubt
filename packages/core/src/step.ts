@@ -19,7 +19,15 @@ import { World } from "./world.js";
 
 import { updateBleed, updateMatchEnd } from "./systems/bleed.js";
 import { updateControlPoints } from "./systems/capture.js";
-import { tryEngage, tryResupply } from "./systems/combat.js";
+import {
+  aimAt,
+  beginReload,
+  fire,
+  look,
+  recordPositionHistory,
+  tryResupply,
+  updateWeapons,
+} from "./systems/combat.js";
 import {
   applyConstruction,
   destroyFob,
@@ -109,6 +117,10 @@ export class Simulation {
     applyConstruction(world, builders);
     applyRevives(world, medics);
     updateMovement(world);
+    // History is recorded after movement, so a rewind lands on positions the
+    // clients were actually shown.
+    recordPositionHistory(world);
+    updateWeapons(world);
     updateCasualties(world);
     updateRallies(world);
     updateOverrun(world);
@@ -231,8 +243,28 @@ export class Simulation {
         return;
       }
 
+      case "look": {
+        if (player.status !== "alive") {
+          world.reject(player.id, command.t, "notAlive");
+          return;
+        }
+        look(player, command.yaw, command.pitch);
+        return;
+      }
+
+      case "fire": {
+        const rejection = fire(world, player, command.renderTick ?? world.state.tick);
+        if (rejection !== null) world.reject(player.id, command.t, rejection);
+        return;
+      }
+
+      case "reload": {
+        beginReload(world, player);
+        return;
+      }
+
       case "engage": {
-        const rejection = tryEngage(world, player, command.target);
+        const rejection = aimAt(world, player, command.target);
         if (rejection !== null) world.reject(player.id, command.t, rejection);
         return;
       }

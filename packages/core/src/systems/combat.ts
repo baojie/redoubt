@@ -1,67 +1,286 @@
 /**
- * The M0/M1 combat stand-in.
+ * Shooting.
  *
- * A hit-probability model, not ballistics. PLAN §5 is explicit that real
- * projectiles, suppression and lag-compensated hit registration belong to M3;
- * until then combat only needs to produce casualties at a believable rate so
- * the ticket economy can be measured. Everything here is replaceable without
- * touching a single rule in the layers above.
+ * Two ways to point a rifle, one way to fire it:
+ *
+ *  - `aimAt` swings onto a body and is what a bot issues. It applies the
+ *    elevation a competent shooter would hold for the range, then fires.
+ *  - `look` sets yaw and pitch directly and is what a human on a mouse issues.
+ *
+ * Both end up in `fire`, so there is exactly one place where a round is
+ * created and exactly one set of rules about where it goes. A bot has no
+ * privileged path to a hit; it aims and misses like everyone else, and the
+ * spread model in rules.ts is what decides.
+ *
+ * Hit registration is lag-compensated: the shot is tested against where the
+ * targets *were* at the tick the shooter was looking at, not where they are
+ * now (PLAN §4). Without it, hitting a moving target at any real ping means
+ * leading them by an amount no player can be expected to judge.
  */
 
-import { distance } from "../math.js";
+import { directionFromAngles, distance, anglesFromDirection } from "../math.js";
+import type { Vec2, Vec3 } from "../math.js";
 import {
   AMMO_PER_ENGAGEMENT,
   DAMAGE_PER_HIT,
   ENGAGEMENT_COOLDOWN_TICKS,
-  ENGAGEMENT_MAX_RANGE_M,
+  LAG_COMPENSATION_TICKS,
+  MAGAZINE_ROUNDS,
   MAIN_BASE_RADIUS_M,
+  RECOIL_MAX_STEPS,
+  RECOIL_RECOVERY_PER_S,
+  RELOAD_TICKS,
   RESUPPLY_AMMO_PER_PULL,
   RESUPPLY_AMMO_POINT_COST_PER_UNIT,
   RESUPPLY_REACH_M,
+  SUPPRESSION_DECAY_PER_S,
+  SUPPRESSION_PER_ROUND,
   PLAYER_MAX_AMMO,
-  hitChanceAtRange,
+  TICK_RATE_HZ,
+  weaponSpreadRad,
 } from "../rules.js";
+import { EYE_HEIGHT_M, TORSO_HEIGHT_M } from "../terrain.js";
 import type { Player, PlayerId } from "../types.js";
 import type { World } from "../world.js";
+import { applySpread, aimWithDrop, resolveShot, type Target } from "./ballistics.js";
 
-export type EngageRejection =
+export type FireRejection =
   | "notAlive"
-  | "noSuchTarget"
-  | "targetNotEngageable"
-  | "outOfRange"
+  | "mounted"
   | "outOfAmmo"
+  | "reloading"
   | "weaponCycling";
 
-export function tryEngage(
+export type EngageRejection = FireRejection | "noSuchTarget" | "targetNotEngageable";
+
+// ---------------------------------------------------------------------------
+// Pointing the rifle
+// ---------------------------------------------------------------------------
+
+/** Set aim directly. What a mouse produces. */
+export function look(player: Player, yaw: number, pitch: number): void {
+  if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return;
+  player.aimYaw = wrapAngle(yaw);
+  // Nobody can look further than straight up or straight down.
+  player.aimPitch = Math.max(-MAX_PITCH_RAD, Math.min(MAX_PITCH_RAD, pitch));
+}
+
+const MAX_PITCH_RAD = Math.PI / 2 - 0.01;
+
+function wrapAngle(angle: number): number {
+  const twoPi = Math.PI * 2;
+  const wrapped = angle % twoPi;
+  return wrapped > Math.PI ? wrapped - twoPi : wrapped <= -Math.PI ? wrapped + twoPi : wrapped;
+}
+
+// ---------------------------------------------------------------------------
+// Firing
+// ---------------------------------------------------------------------------
+
+/**
+ * Fire one round along the shooter's current aim.
+ *
+ * `renderTick` is the tick the shooter believes they were looking at. It is
+ * clamped to a legal window before use, so a client cannot rewind the world
+ * to whenever suits it.
+ */
+export function fire(world: World, shooter: Player, renderTick: number): FireRejection | null {
+  const state = world.state;
+  if (shooter.status !== "alive") return "notAlive";
+  if (shooter.vehicle !== null) return "mounted";
+  if (shooter.reloadingUntilTick > state.tick) return "reloading";
+  if (state.tick < shooter.nextShotAtTick) return "weaponCycling";
+  if (shooter.magazine < AMMO_PER_ENGAGEMENT) {
+    // Dry magazine starts a reload rather than silently doing nothing, which
+    // is what a player expects from pulling the trigger on an empty gun.
+    beginReload(world, shooter);
+    return "outOfAmmo";
+  }
+
+  shooter.magazine -= AMMO_PER_ENGAGEMENT;
+  shooter.nextShotAtTick = state.tick + ENGAGEMENT_COOLDOWN_TICKS;
+  shooter.recoilSteps = Math.min(RECOIL_MAX_STEPS, shooter.recoilSteps + 1);
+
+  const terrain = world.terrain;
+  const origin: Vec3 = {
+    x: shooter.pos.x,
+    y: shooter.pos.y,
+    z: terrain.heightAt(shooter.pos.x, shooter.pos.y) + EYE_HEIGHT_M,
+  };
+
+  const spread = weaponSpreadRad({
+    moving: isMoving(shooter),
+    suppression: shooter.suppression,
+    recoilSteps: shooter.recoilSteps,
+  });
+  const aim = directionFromAngles(shooter.aimYaw, shooter.aimPitch);
+  const direction = applySpread(aim, spread, world.rng.next(), world.rng.next());
+
+  const targets = rewoundTargets(world, shooter, renderTick);
+  const impact = resolveShot(terrain, origin, direction, targets);
+
+  for (const id of impact.suppressed) {
+    const victim = world.player(id);
+    if (victim === undefined || victim.status !== "alive") continue;
+    victim.pendingSuppression += SUPPRESSION_PER_ROUND;
+  }
+
+  if (impact.hit !== null) {
+    const victim = world.player(impact.hit);
+    if (victim !== undefined && victim.team !== shooter.team) {
+      if (victim.status === "alive") {
+        // Damage lands now; going down is resolved once every command this
+        // tick has run, so simultaneous exchanges are genuinely simultaneous.
+        victim.health -= DAMAGE_PER_HIT;
+        victim.lastHitBy = shooter.id;
+      } else if (victim.status === "downed") {
+        // A body on the ground is still a target, and putting another round
+        // into it ends the argument. Without this rule a squad standing over
+        // its casualties revives them faster than anyone can kill them: it
+        // measured at five revives per death, and the ticket economy — which
+        // is the entire game — stopped meaning anything.
+        //
+        // Driven negative rather than killed on the spot, so the casualty
+        // resolves with everything else at the end of the tick.
+        victim.health -= DAMAGE_PER_HIT;
+        victim.lastHitBy = shooter.id;
+      }
+    }
+  }
+
+  world.emit({
+    t: "shotFired",
+    tick: state.tick,
+    shooter: shooter.id,
+    team: shooter.team,
+    from: origin,
+    to: impact.at,
+    flightSeconds: impact.flightSeconds,
+    hit: impact.hit,
+  });
+
+  return null;
+}
+
+/** Swing onto a body and fire. What a bot issues. */
+export function aimAt(
   world: World,
   shooter: Player,
   targetId: PlayerId,
 ): EngageRejection | null {
-  if (shooter.status !== "alive") return "notAlive";
   const target = world.player(targetId);
   if (target === undefined) return "noSuchTarget";
   if (target.team === shooter.team || target.status !== "alive") {
     return "targetNotEngageable";
   }
-  if (world.state.tick < shooter.nextShotAtTick) return "weaponCycling";
-  if (shooter.ammo < AMMO_PER_ENGAGEMENT) return "outOfAmmo";
+  if (shooter.status !== "alive") return "notAlive";
 
-  const range = distance(shooter.pos, target.pos);
-  if (range > ENGAGEMENT_MAX_RANGE_M) return "outOfRange";
+  const terrain = world.terrain;
+  const origin: Vec3 = {
+    x: shooter.pos.x,
+    y: shooter.pos.y,
+    z: terrain.heightAt(shooter.pos.x, shooter.pos.y) + EYE_HEIGHT_M,
+  };
+  const aimPoint: Vec3 = {
+    x: target.pos.x,
+    y: target.pos.y,
+    z: terrain.heightAt(target.pos.x, target.pos.y) + TORSO_HEIGHT_M,
+  };
 
-  shooter.ammo -= AMMO_PER_ENGAGEMENT;
-  shooter.nextShotAtTick = world.state.tick + ENGAGEMENT_COOLDOWN_TICKS;
-  if (!world.rng.chance(hitChanceAtRange(range))) return null;
+  // Hold the elevation the range calls for. Without this a bot shoots flat and
+  // its rounds bury themselves in the dirt past about a hundred metres.
+  const direction = aimWithDrop(origin, aimPoint);
+  const angles = anglesFromDirection(direction);
+  look(shooter, angles.yaw, angles.pitch);
 
-  // Damage lands now; going down is resolved after every command this tick has
-  // been applied — see resolveHits. Downing the target here instead would mean
-  // whoever's command was processed first won every mutual engagement, and
-  // since commands arrive in player-id order that is a permanent advantage for
-  // one team. It measured as several points of win rate.
-  target.health -= DAMAGE_PER_HIT;
-  target.lastHitBy = shooter.id;
-  return null;
+  return fire(world, shooter, world.state.tick);
 }
+
+export function beginReload(world: World, player: Player): void {
+  if (player.reloadingUntilTick > world.state.tick) return;
+  if (player.magazine >= MAGAZINE_ROUNDS) return;
+  if (player.ammo <= 0) return;
+  player.reloadingUntilTick = world.state.tick + RELOAD_TICKS;
+}
+
+/** Complete reloads, and bleed off recoil and suppression. */
+export function updateWeapons(world: World): void {
+  const state = world.state;
+  const perTick = 1 / TICK_RATE_HZ;
+
+  for (const player of state.players) {
+    if (player.reloadingUntilTick > 0 && state.tick >= player.reloadingUntilTick) {
+      player.reloadingUntilTick = 0;
+      // The reserve pays for the magazine, so a soldier who has not resupplied
+      // eventually cannot reload — ammo is a logistics resource, not a number
+      // that regenerates.
+      const wanted = MAGAZINE_ROUNDS - player.magazine;
+      const drawn = Math.min(wanted, player.ammo);
+      player.magazine += drawn;
+      player.ammo -= drawn;
+    }
+
+    if (player.suppression > 0) {
+      player.suppression = Math.max(0, player.suppression - SUPPRESSION_DECAY_PER_S * perTick);
+    }
+    if (player.recoilSteps > 0 && state.tick >= player.nextShotAtTick) {
+      player.recoilSteps = Math.max(0, player.recoilSteps - RECOIL_RECOVERY_PER_S * perTick);
+    }
+  }
+}
+
+/** Record this tick's positions for lag compensation. Runs after movement. */
+export function recordPositionHistory(world: World): void {
+  for (const player of world.state.players) {
+    player.history.push({ x: player.pos.x, y: player.pos.y });
+    while (player.history.length > LAG_COMPENSATION_TICKS) player.history.shift();
+  }
+}
+
+/**
+ * The enemy, positioned as the shooter saw them.
+ *
+ * `renderTick` is clamped into the compensation window: a client that claims
+ * to be looking at a tick from ten seconds ago gets the oldest position the
+ * server still keeps, not a time machine.
+ */
+function rewoundTargets(world: World, shooter: Player, renderTick: number): Target[] {
+  const state = world.state;
+  const terrain = world.terrain;
+  const requested = Number.isFinite(renderTick) ? Math.floor(renderTick) : state.tick;
+  const oldest = state.tick - LAG_COMPENSATION_TICKS;
+  const clamped = Math.max(oldest, Math.min(state.tick, requested));
+  const ticksBack = state.tick - clamped;
+
+  const targets: Target[] = [];
+  for (const player of state.players) {
+    if (player.id === shooter.id) continue;
+    // Downed bodies included: they can be finished off, and a round that
+    // passes through where one is lying should not carry on to the man behind.
+    if (player.status === "deploying") continue;
+    if (player.team === shooter.team) continue;
+    const at = positionAt(player, ticksBack);
+    targets.push({
+      id: player.id,
+      torso: { x: at.x, y: at.y, z: terrain.heightAt(at.x, at.y) + TORSO_HEIGHT_M },
+    });
+  }
+  return targets;
+}
+
+function positionAt(player: Player, ticksBack: number): Vec2 {
+  if (ticksBack <= 0 || player.history.length === 0) return player.pos;
+  const index = player.history.length - ticksBack;
+  return player.history[Math.max(0, index)] ?? player.pos;
+}
+
+function isMoving(player: Player): boolean {
+  return player.steer !== null || player.waypoint !== null;
+}
+
+// ---------------------------------------------------------------------------
+// Resupply
+// ---------------------------------------------------------------------------
 
 export type ResupplyRejection = "notAlive" | "noSourceInReach" | "sourceEmpty" | "alreadyFull";
 

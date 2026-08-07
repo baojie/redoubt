@@ -10,34 +10,63 @@ import { eventsOfType, firstEvent, harness } from "./helpers.js";
 const OPEN_GROUND = { x: 500, y: 500 };
 
 describe("engagements", () => {
-  it("costs ammo and is rate limited", () => {
+  it("spends a round from the magazine, and is rate limited", () => {
     const h = harness();
     const shooter = h.team(0)[0]!;
     const target = h.team(1)[0]!;
     h.place(shooter.id, OPEN_GROUND);
     h.place(target.id, OPEN_GROUND);
 
-    const before = shooter.ammo;
+    // Rounds come out of the magazine; `ammo` is the reserve a reload draws on.
+    const magazineBefore = shooter.magazine;
+    const reserveBefore = shooter.ammo;
     h.tick([{ t: "engage", player: shooter.id, target: target.id }]);
-    expect(shooter.ammo).toBe(before - rules.AMMO_PER_ENGAGEMENT);
+    expect(shooter.magazine).toBe(magazineBefore - rules.AMMO_PER_ENGAGEMENT);
+    expect(shooter.ammo).toBe(reserveBefore);
 
     const tooSoon = h.tick([{ t: "engage", player: shooter.id, target: target.id }]);
     expect(firstEvent(tooSoon, "commandRejected")?.reason).toBe("weaponCycling");
-    expect(shooter.ammo).toBe(before - rules.AMMO_PER_ENGAGEMENT);
+    expect(shooter.magazine).toBe(magazineBefore - rules.AMMO_PER_ENGAGEMENT);
   });
 
-  it("cannot reach past maximum engagement range", () => {
+  it("lets rounds fly past the range a bot would bother shooting at", () => {
+    // There is no "out of range" any more. A rifle fires; where the round ends
+    // up is geometry. Distant targets are missed, not refused.
     const h = harness();
     const shooter = h.team(0)[0]!;
     const target = h.team(1)[0]!;
     h.place(shooter.id, OPEN_GROUND);
     h.place(target.id, {
-      x: OPEN_GROUND.x + rules.ENGAGEMENT_MAX_RANGE_M + 1,
+      x: OPEN_GROUND.x + rules.ENGAGEMENT_MAX_RANGE_M + 100,
       y: OPEN_GROUND.y,
     });
 
     const events = h.tick([{ t: "engage", player: shooter.id, target: target.id }]);
-    expect(firstEvent(events, "commandRejected")?.reason).toBe("outOfRange");
+    expect(firstEvent(events, "commandRejected")).toBeUndefined();
+    expect(firstEvent(events, "shotFired")).toBeDefined();
+  });
+
+  it("empties a magazine and then reloads out of the reserve", () => {
+    const h = harness();
+    const shooter = h.team(0)[0]!;
+    const target = h.team(1)[0]!;
+    h.place(shooter.id, OPEN_GROUND);
+    h.place(target.id, OPEN_GROUND);
+
+    // Fire the magazine dry.
+    h.run(rules.ENGAGEMENT_COOLDOWN_TICKS * rules.MAGAZINE_ROUNDS + 2, () => [
+      { t: "engage", player: shooter.id, target: target.id },
+    ]);
+    expect(shooter.magazine).toBeLessThan(rules.MAGAZINE_ROUNDS);
+
+    const reserveBefore = shooter.ammo;
+    h.tick([{ t: "reload", player: shooter.id }]);
+    expect(shooter.reloadingUntilTick).toBeGreaterThan(h.state.tick);
+
+    // A reload takes real time, and the rounds come from somewhere.
+    h.run(rules.RELOAD_TICKS + 2);
+    expect(shooter.magazine).toBeGreaterThan(0);
+    expect(shooter.ammo).toBeLessThan(reserveBefore);
   });
 
   it("puts a target down rather than killing outright", () => {

@@ -10,6 +10,8 @@
 
 import type { GameEvent } from "./events.js";
 import { Rng } from "./rng.js";
+import { createTerrain, type Terrain } from "./terrain.js";
+import { TEAM_IDS } from "./state.js";
 import type {
   Deployable,
   DeployableId,
@@ -50,6 +52,12 @@ export class World {
   /** Events produced by the current tick. Drained by the caller. */
   events: GameEvent[] = [];
 
+  /**
+   * The ground. Derived from the match seed rather than stored, and built once
+   * per World because it is immutable for the whole match.
+   */
+  readonly terrain: Terrain;
+
   private readonly playerIndex = emptyIndex<Player>();
   private readonly squadIndex = emptyIndex<Squad>();
   private readonly fobIndex = emptyIndex<Fob>();
@@ -60,6 +68,11 @@ export class World {
   constructor(state: GameState) {
     this.state = state;
     this.rng = Rng.restore(state.rng);
+    this.terrain = createTerrain(
+      state.terrainSeed,
+      TEAM_IDS.map((team) => state.teams[team].mainBase),
+      state.map.sizeM,
+    );
   }
 
   /** Persist the RNG cursor back into the state. Called at end of tick. */

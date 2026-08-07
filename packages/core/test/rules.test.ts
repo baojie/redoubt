@@ -67,19 +67,63 @@ describe("a usable FOB costs 600 construction points", () => {
   });
 });
 
-describe("hit chance falloff", () => {
-  it("decreases monotonically with range", () => {
-    let previous = Number.POSITIVE_INFINITY;
-    for (let r = 0; r <= rules.ENGAGEMENT_MAX_RANGE_M; r += 10) {
-      const chance = rules.hitChanceAtRange(r);
-      expect(chance).toBeLessThan(previous);
-      previous = chance;
-    }
+describe("ballistics", () => {
+  it("drops rounds measurably at range, and quadratically", () => {
+    // Real drop, not a fudge factor: doubling the range quadruples the drop.
+    const near = rules.bulletDropM(200);
+    const far = rules.bulletDropM(400);
+    expect(near).toBeGreaterThan(0.1);
+    expect(far / near).toBeCloseTo(4, 1);
   });
 
-  it("is zero beyond engagement range", () => {
-    expect(rules.hitChanceAtRange(rules.ENGAGEMENT_MAX_RANGE_M)).toBe(0);
-    expect(rules.hitChanceAtRange(rules.ENGAGEMENT_MAX_RANGE_M + 1)).toBe(0);
+  it("gives rounds a travel time worth leading a target for", () => {
+    // A soldier crossing at walking pace moves several body widths in the
+    // time a round takes to reach them at range.
+    const flight = rules.flightTimeSeconds(300);
+    expect(flight).toBeGreaterThan(0.3);
+    expect(flight * rules.PLAYER_SPEED_MPS).toBeGreaterThan(1);
+  });
+});
+
+describe("weapon spread", () => {
+  it("is tightest standing still, unsuppressed, on the first round", () => {
+    const best = rules.weaponSpreadRad({ moving: false, suppression: 0, recoilSteps: 0 });
+    expect(best).toBe(rules.WEAPON_BASE_SPREAD_RAD);
+  });
+
+  it("is widened by movement, suppression and recoil independently", () => {
+    const base = rules.weaponSpreadRad({ moving: false, suppression: 0, recoilSteps: 0 });
+    const moving = rules.weaponSpreadRad({ moving: true, suppression: 0, recoilSteps: 0 });
+    const suppressed = rules.weaponSpreadRad({ moving: false, suppression: 1, recoilSteps: 0 });
+    const spraying = rules.weaponSpreadRad({ moving: false, suppression: 0, recoilSteps: 4 });
+
+    expect(moving).toBeGreaterThan(base);
+    expect(suppressed).toBeGreaterThan(base);
+    expect(spraying).toBeGreaterThan(base);
+  });
+
+  it("compounds them, so doing everything wrong at once is worst", () => {
+    const everything = rules.weaponSpreadRad({
+      moving: true,
+      suppression: 1,
+      recoilSteps: rules.RECOIL_MAX_STEPS,
+    });
+    const justMoving = rules.weaponSpreadRad({ moving: true, suppression: 0, recoilSteps: 0 });
+    expect(everything).toBeGreaterThan(justMoving);
+  });
+
+  it("saturates recoil rather than growing without bound", () => {
+    const atCap = rules.weaponSpreadRad({
+      moving: false,
+      suppression: 0,
+      recoilSteps: rules.RECOIL_MAX_STEPS,
+    });
+    const wayPast = rules.weaponSpreadRad({
+      moving: false,
+      suppression: 0,
+      recoilSteps: rules.RECOIL_MAX_STEPS * 10,
+    });
+    expect(wayPast).toBe(atCap);
   });
 });
 
