@@ -5,6 +5,7 @@
 #   ./run.sh                 play one match and print the battle report
 #   ./run.sh match 7         same, with a specific seed
 #   ./run.sh batch 1000      balance statistics over N matches
+#   ./run.sh play            start the server and the 2D client, then play
 #   ./run.sh test            unit + property + balance-gate tests
 #   ./run.sh check           typecheck, then the full test suite
 #   ./run.sh setup           install pnpm (if missing) and dependencies
@@ -87,6 +88,29 @@ cmd_batch() {
   "$PNPM" --silent sim --matches "$matches" "$@"
 }
 
+# Runs both halves of the playable build and waits. Ctrl-C stops the pair.
+cmd_play() {
+  require_deps
+  local port="${1:-8787}"
+  local seed="${2:-$DEFAULT_SEED}"
+
+  "$PNPM" --silent --filter @redoubt/server start --port "$port" --seed "$seed" &
+  local server_pid=$!
+  # Stop the server whichever way this function exits, including Ctrl-C.
+  trap 'kill "$server_pid" 2>/dev/null' EXIT INT TERM
+
+  echo
+  echo "  server  ws://localhost:${port}"
+  echo "  client  http://localhost:5173/   (append ?join=you to skip the splash)"
+  echo
+  "$PNPM" --silent --filter @redoubt/client dev
+}
+
+cmd_serve() {
+  require_deps
+  "$PNPM" --silent --filter @redoubt/server start "$@"
+}
+
 cmd_test() {
   require_deps
   "$PNPM" --silent test "$@"
@@ -121,6 +145,8 @@ main() {
   case "$subcommand" in
     match | run | sim) cmd_match "$@" ;;
     batch | matches) cmd_batch "$@" ;;
+    play) cmd_play "$@" ;;
+    serve | server) cmd_serve "$@" ;;
     test | t) cmd_test "$@" ;;
     typecheck | tc) cmd_typecheck ;;
     check | ci) cmd_check ;;

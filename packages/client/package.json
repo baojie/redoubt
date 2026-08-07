@@ -1,0 +1,19 @@
+{
+  "name": "@redoubt/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Canvas 2D top-down client. Predicts, never decides.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@redoubt/core": "workspace:*",
+    "@redoubt/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^6.0.7"
+  }
+}
