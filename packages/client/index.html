@@ -45,9 +45,41 @@
 
       #scoreboard { top: 12px; left: 50%; transform: translateX(-50%); text-align: center; }
       #status     { bottom: 12px; left: 12px; }
+      #weapon     { bottom: 12px; left: 50%; transform: translateX(-50%); text-align: center; }
       #netgraph   { top: 12px; right: 12px; color: var(--dim); }
       #feed       { bottom: 12px; right: 12px; text-align: right; color: var(--dim); }
       #help       { top: 50%; left: 12px; transform: translateY(-50%); color: var(--dim); }
+
+      /* Centre dot. Deliberately minimal: the spread cone is what decides a
+         hit, and a big reticle would imply a precision the weapon lacks. */
+      #crosshair {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 4px;
+        height: 4px;
+        margin: -2px 0 0 -2px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.85);
+        display: none;
+        pointer-events: none;
+      }
+      #crosshair.shown { display: block; }
+
+      /* Suppression: being shot at narrows the world. Opacity is driven from
+         the authoritative suppression value, not from a local guess. */
+      #suppression {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 120ms linear;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(0, 0, 0, 0) 35%,
+          rgba(12, 8, 6, 0.85) 100%
+        );
+      }
 
       #deploy {
         position: absolute;
@@ -113,10 +145,14 @@
   </head>
   <body>
     <div id="stage">
+      <canvas id="view3d"></canvas>
       <canvas id="view"></canvas>
+      <div id="crosshair"></div>
+      <div id="suppression"></div>
 
       <div id="scoreboard" class="panel"></div>
       <div id="status" class="panel"></div>
+      <div id="weapon" class="panel"></div>
       <div id="netgraph" class="panel"></div>
       <div id="feed" class="panel"></div>
       <div id="help" class="panel"></div>

@@ -50,6 +50,14 @@ export const PROTOCOL_VERSION = 1;
 export type Intent =
   | { t: "steer"; dir: { x: number; y: number } }
   | { t: "halt" }
+  /** Mouse look. Authoritative — rounds leave along this. */
+  | { t: "look"; yaw: number; pitch: number }
+  /**
+   * Pull the trigger. `renderTick` is what the shooter was looking at, for
+   * lag compensation; the server clamps it into a legal window.
+   */
+  | { t: "fire"; renderTick?: number }
+  | { t: "reload" }
   | { t: "spawn"; source: SpawnChoice }
   | { t: "placeRally" }
   | { t: "placeFob" }
@@ -107,6 +115,8 @@ export interface PlayerView {
   status: PlayerStatus;
   x: number;
   y: number;
+  /** Which way they are facing, so a 3D client can orient the body. */
+  yaw: number;
 }
 
 /** Extra fields sent only for the receiving client's own soldier. */
@@ -121,6 +131,15 @@ export interface SelfView extends PlayerView {
    */
   deployingSinceTick: number;
   bleedoutAtTick: number;
+  /** Authoritative aim. The client predicts it locally and reconciles here. */
+  aimYaw: number;
+  aimPitch: number;
+  /** Rounds in the magazine, distinct from `ammo`, the reserve. */
+  magazine: number;
+  /** Tick a reload finishes, or 0. */
+  reloadingUntilTick: number;
+  /** 0..1. Drives the client's vignette and its spread indicator. */
+  suppression: number;
 }
 
 export interface ControlPointView {
@@ -227,6 +246,11 @@ export interface WelcomePayload {
   team: TeamId;
   squad: SquadId;
   tickRateHz: number;
+  /**
+   * Seed for the procedural terrain. The client rebuilds the exact same ground
+   * from this rather than downloading a heightmap — see core/terrain.ts.
+   */
+  terrainSeed: number;
   /**
    * How often snapshots are sent, which is deliberately slower than the tick
    * rate. The client needs it to size its interpolation delay: it renders one

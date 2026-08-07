@@ -17,6 +17,7 @@ import {
   type ServerMessage,
 } from "@redoubt/protocol";
 import { Match } from "./match.js";
+import { CULL_RADIUS_M } from "./snapshot.js";
 import { Session } from "./session.js";
 
 export interface GameServerOptions {
@@ -48,6 +49,17 @@ const BROADCAST_EVENTS: ReadonlySet<GameEvent["t"]> = new Set<GameEvent["t"]>([
   "playerDied",
   "supplyUnloaded",
 ]);
+
+/**
+ * Shots are handled separately from the broadcast list above.
+ *
+ * At 20 Hz with a full server they are by far the highest-volume event, and
+ * they are also the most local: a tracer a kilometre away is not information,
+ * it is bandwidth. Each one is sent only to clients near enough to have seen
+ * it, which is why it cannot ride the same all-or-nothing path as a flag
+ * capture.
+ */
+const TRACER_VISIBILITY_M = CULL_RADIUS_M;
 
 const DEFAULT_INTERMISSION_S = 15;
 
@@ -209,6 +221,7 @@ export class GameServer {
       team: player.team,
       squad: player.squad,
       tickRateHz: rules.TICK_RATE_HZ,
+      terrainSeed: this.match.state.terrainSeed,
       snapshotRateHz: SNAPSHOT_RATE_HZ,
       tick: this.match.state.tick,
       map: this.match.state.map,
@@ -261,13 +274,35 @@ export class GameServer {
 
   private broadcastEvents(events: readonly GameEvent[]): void {
     const worth = events.filter((e) => BROADCAST_EVENTS.has(e.t));
-    if (worth.length === 0) return;
+    const shots = events.filter((e) => e.t === "shotFired");
+    if (worth.length === 0 && shots.length === 0) return;
+
+    const world = this.match.view;
     for (const [socket, session] of this.sessions) {
-      if (!session.joined) continue;
+      if (!session.joined || session.playerId === null) continue;
+
+      // Tracers are culled per client: a round fired across the map is not
+      // something this player could have seen, and sending it to everyone
+      // would make gunfire the single largest thing on the wire.
+      const viewer = world.player(session.playerId);
+      const nearby =
+        viewer === undefined
+          ? []
+          : shots.filter(
+              (e) =>
+                e.t === "shotFired" &&
+                (Math.hypot(e.from.x - viewer.pos.x, e.from.y - viewer.pos.y) <=
+                  TRACER_VISIBILITY_M ||
+                  Math.hypot(e.to.x - viewer.pos.x, e.to.y - viewer.pos.y) <=
+                    TRACER_VISIBILITY_M),
+            );
+
+      const payload = [...worth, ...nearby];
+      if (payload.length === 0) continue;
       this.send(socket, session, {
         t: "events",
         tick: this.match.state.tick,
-        events: worth,
+        events: payload,
       });
     }
   }

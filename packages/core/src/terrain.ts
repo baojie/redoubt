@@ -17,7 +17,15 @@
  * output, on any machine, in any order, forever.
  */
 
-import { MAP_SIZE_M } from "./rules.js";
+import {
+  BODY_HALF_HEIGHT_M,
+  BODY_RADIUS_M,
+  EYE_HEIGHT_M,
+  MAP_SIZE_M,
+  TORSO_HEIGHT_M,
+} from "./rules.js";
+
+export { BODY_HALF_HEIGHT_M, BODY_RADIUS_M, EYE_HEIGHT_M, TORSO_HEIGHT_M };
 
 // ---------------------------------------------------------------------------
 // Shape of the land
@@ -49,15 +57,6 @@ const PERSISTENCE = 0.5;
  */
 const FLATTEN_RADIUS_M = 130;
 const FLATTEN_FALLOFF_M = 90;
-
-/** Eye height above ground for a standing soldier. */
-export const EYE_HEIGHT_M = 1.7;
-/** Centre-of-mass height, used as the aim point and the hit capsule centre. */
-export const TORSO_HEIGHT_M = 1.1;
-/** Radius of the cylinder a bullet has to hit. */
-export const BODY_RADIUS_M = 0.35;
-/** Half-height of that cylinder, measured from the torso point. */
-export const BODY_HALF_HEIGHT_M = 0.9;
 
 // ---------------------------------------------------------------------------
 // Noise

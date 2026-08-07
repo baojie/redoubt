@@ -14,7 +14,7 @@ graphics at all — and the game is already playable enough to measure.
 | **M0** — deterministic rules engine + headless match report | **done** |
 | **M1** — layered bots and balance harness | **done** |
 | **M2** — authoritative server + 2D playable client | **done** |
-| M3 — 3D first person | not started |
+| **M3** — 3D first person, real ballistics | **playable** |
 | M4 — vehicles and logistics in 3D | not started |
 
 ## Play it
@@ -25,8 +25,15 @@ graphics at all — and the game is already playable enough to measure.
 ```
 
 Then open <http://localhost:5173/>. You take over a soldier a bot was already
-playing; the rest of both teams stay under bot control. WASD to move, click to
-engage, `/` for the full key list.
+playing; the rest of both teams stay under bot control.
+
+It opens in first person: click to capture the mouse, WASD to move, mouse to
+look, click to fire, `R` to reload. `Tab` switches to the top-down map view —
+which is the whole M2 client, still running on the same connection, not a
+minimap. `/` for the full key list.
+
+If your machine has no WebGL the page falls back to the map view rather than
+breaking; the map view is a complete client on its own.
 
 ## Watch it instead
 
@@ -89,17 +96,33 @@ the invariants that keep it that way.
 - **Casualties**: downed and revivable, with the ticket only spent once nobody
   comes.
 
-Combat is a hit-probability stand-in, not ballistics — real projectiles,
-suppression and lag-compensated hit registration are M3's job and are meant to
-drop in without touching anything above.
+- **Ballistics**: rounds leave along the shooter's aim plus a dispersion cone,
+  fly at 780 m/s, drop under gravity, and are stopped by terrain. Where a round
+  goes is geometry, not a dice roll. Magazines, reloads and a reserve that only
+  logistics can refill.
+- **Suppression**: rounds passing close rattle a soldier, widening their own
+  dispersion and darkening their view until it decays. PLAN §5 rates this above
+  weapon models, and it is the reason a machine gun is useful without hitting
+  anyone.
+- **Terrain**: a 1 km² heightfield generated from the match seed alone —
+  nothing is shipped, and server and client compute the identical ground, so
+  the hill you take cover behind is the hill the server blocks rounds with.
+
+The M0/M1 hit-probability stand-in is gone. Everything above it — tickets,
+FOBs, capture, logistics — was untouched by the swap, which is what building
+the rules engine first was for.
 
 ## Netcode
 
 Server authoritative at 20 Hz, snapshots at 10 Hz, per PLAN §4. The client
 predicts its own movement and replays unacknowledged input over each
 correction; everyone else is interpolated one snapshot interval in the past.
-Snapshots are culled at 500 m and diffed per entity, which currently costs
-about 13 KB/s per client against a 30 KB/s budget.
+Snapshots are culled at 500 m and diffed per entity, and tracers are culled
+separately because gunfire is the highest-volume and most local event there is.
+
+Hit registration is lag-compensated: each shot rewinds the world up to a second
+to what the shooter was actually looking at. The client's claimed render tick is
+clamped into that window, so it cannot pick its own moment in history.
 
 The diagnostics panel in the top-right is the thing to watch: **prediction
 error** should sit at 0.00 m. Anything else means the client and server

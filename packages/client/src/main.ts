@@ -16,19 +16,34 @@
 
 import { rules, type TeamId } from "@redoubt/core";
 import type { Intent } from "@redoubt/protocol";
+import { FirstPersonInput, steerFromCamera } from "./firstPerson.js";
 import { Hud, type DeployOption } from "./hud.js";
 import { InputState, SIMPLE_ACTION_INTENTS, type ActionKey } from "./input.js";
 import { Connection } from "./net.js";
 import { normaliseSteer } from "./prediction.js";
 import { render } from "./render.js";
+import { Scene3D } from "./scene3d.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
 if (ctx === null) throw new Error("canvas 2d context unavailable");
+const scene3dCanvas = document.getElementById("view3d") as HTMLCanvasElement;
 
 const connection = new Connection();
 const input = new InputState();
 const hud = new Hud();
+const firstPerson = new FirstPersonInput(scene3dCanvas);
+
+/**
+ * Two views over one connection.
+ *
+ * First person is where the game is played; the top-down map is where it is
+ * understood. Both read the same predicted and interpolated state — the map is
+ * not a minimap widget, it is the M2 client still running, which is why
+ * switching between them costs nothing and neither can disagree with the other.
+ */
+let scene: Scene3D | null = null;
+let firstPersonView = true;
 
 input.attach(canvas);
 hud.drawHelp();
@@ -59,6 +74,26 @@ joinButton.addEventListener("click", () => {
   joinStatus.textContent = "connecting…";
   connection.connect(defaultServerUrl(), joinName.value || "player", () => {
     joinScreen.classList.add("hidden");
+    const welcome = connection.welcome;
+    if (welcome !== null && scene === null) {
+      // No WebGL is a reason to fall back to the map, not to break the page.
+      // The 2D view is a complete client on its own — it was the whole of M2 —
+      // so a machine that cannot do 3D can still play.
+      try {
+        scene = new Scene3D(
+          scene3dCanvas,
+          welcome.terrainSeed,
+          [welcome.map.mainBases[0], welcome.map.mainBases[1]],
+          welcome.map.sizeM,
+        );
+      } catch (error) {
+        scene = null;
+        firstPersonView = false;
+        hud.note(`3D unavailable (${describeError(error)}) — using the map view`);
+      }
+      resize();
+    }
+    setView(firstPersonView);
   });
   window.setTimeout(() => {
     if (connection.welcome === null) {
@@ -135,6 +170,10 @@ function actionToIntent(action: ActionKey): Intent | null {
 
 function handleActions(): void {
   for (const action of input.drainActions()) {
+    if (action === "toggleView") {
+      setView(!firstPersonView);
+      continue;
+    }
     if (action === "toggleOverview") {
       input.camera.overview = !input.camera.overview;
       continue;
@@ -171,10 +210,39 @@ function inputTick(): void {
 
   const self = connection.world.self;
   const alive = self !== null && self.status === "alive";
-  const steer = alive && self.vehicle === null ? normaliseSteer(input.steerVector()) : null;
+  const onFoot = alive && self.vehicle === null;
+
+  // WASD means compass directions on the map and camera-relative directions in
+  // first person. Both produce the same `steer` intent; the rules engine has
+  // no idea which view the player is using.
+  const raw = input.steerVector();
+  const steer = !onFoot
+    ? null
+    : firstPersonView
+      ? steerFromCamera(raw, firstPerson.yaw)
+      : normaliseSteer(raw);
+
+  if (firstPersonView && onFoot) {
+    queuedIntents.push({ t: "look", yaw: firstPerson.yaw, pitch: firstPerson.pitch });
+    if (firstPerson.triggerHeld) {
+      // The server enforces rate of fire and rejects nothing else here, so
+      // holding the trigger simply fires as fast as the weapon allows.
+      queuedIntents.push({ t: "fire", renderTick: lastRenderTick });
+    }
+    if (firstPerson.takeReload()) queuedIntents.push({ t: "reload" });
+  }
 
   connection.sendInput(steer, queuedIntents);
   queuedIntents.length = 0;
+}
+
+function setView(toFirstPerson: boolean): void {
+  firstPersonView = toFirstPerson && scene !== null;
+  scene3dCanvas.style.display = firstPersonView ? "block" : "none";
+  canvas.style.display = firstPersonView ? "none" : "block";
+  if (!firstPersonView) firstPerson.release();
+  hud.setCrosshair(firstPersonView);
+  resize();
 }
 
 window.setInterval(inputTick, 1000 / rules.TICK_RATE_HZ);
@@ -250,8 +318,12 @@ function resize(): void {
   const ratio = window.devicePixelRatio || 1;
   canvas.width = Math.floor(canvas.clientWidth * ratio);
   canvas.height = Math.floor(canvas.clientHeight * ratio);
+  scene?.resize(scene3dCanvas.clientWidth, scene3dCanvas.clientHeight);
 }
 window.addEventListener("resize", resize);
+
+let lastRenderTick = 0;
+let lastFrameMs = 0;
 
 function frame(): void {
   requestAnimationFrame(frame);
@@ -259,6 +331,10 @@ function frame(): void {
   const welcome = connection.welcome;
   if (welcome === null || ctx === null) return;
   if (canvas.width === 0) resize();
+
+  const now = performance.now();
+  const dt = lastFrameMs === 0 ? 0 : Math.min(0.1, (now - lastFrameMs) / 1000);
+  lastFrameMs = now;
 
   const world = connection.world;
   const selfPos = predictedPosition();
@@ -271,6 +347,25 @@ function frame(): void {
   // players glide instead of teleporting between updates.
   const interpolationDelayTicks = rules.TICK_RATE_HZ / welcome.snapshotRateHz;
   const renderTick = world.tick - interpolationDelayTicks;
+  lastRenderTick = renderTick;
+
+  if (firstPersonView && scene !== null) {
+    scene.placeCamera(selfPos, firstPerson.yaw, firstPerson.pitch);
+    scene.syncPlayers(world, renderTick, welcome.playerId, welcome.team as TeamId);
+    scene.syncStructures(world, welcome.team as TeamId);
+    for (const shot of connection.takeShots()) {
+      scene.addTracer(shot.from, shot.to, shot.flightSeconds, shot.team === welcome.team);
+    }
+    scene.render(dt);
+    hud.drawWeapon(world.self, world.tick);
+    hud.drawScoreboard(world, welcome.team as TeamId, welcome.lane.name);
+    hud.drawStatus(world.self, world);
+    hud.drawNetgraph(connection.stats(renderTick), world.tick);
+    hud.drawFeed(connection.feed);
+    hud.setSuppression(world.self?.suppression ?? 0);
+    refreshDeployScreen();
+    return;
+  }
 
   render({
     canvas,
@@ -287,8 +382,10 @@ function frame(): void {
 
   hud.drawScoreboard(world, welcome.team as TeamId, welcome.lane.name);
   hud.drawStatus(world.self, world);
+  hud.drawWeapon(world.self, world.tick);
   hud.drawNetgraph(connection.stats(renderTick), world.tick);
   hud.drawFeed(connection.feed);
+  hud.setSuppression(0);
   refreshDeployScreen();
 }
 
@@ -296,6 +393,11 @@ resize();
 requestAnimationFrame(frame);
 
 // ---------------------------------------------------------------------------
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 function nearest<T extends { x: number; y: number }>(
   items: readonly T[],

@@ -62,6 +62,20 @@ export function intentToCommand(player: PlayerId, intent: Intent): Command | nul
     case "halt":
       return { t: "halt", player };
 
+    case "look": {
+      if (!finite(intent.yaw) || !finite(intent.pitch)) return null;
+      return { t: "look", player, yaw: intent.yaw, pitch: intent.pitch };
+    }
+    case "fire": {
+      const renderTick = intent.renderTick;
+      if (renderTick !== undefined && !finite(renderTick)) return null;
+      return renderTick === undefined
+        ? { t: "fire", player }
+        : { t: "fire", player, renderTick };
+    }
+    case "reload":
+      return { t: "reload", player };
+
     case "spawn": {
       const source = intent.source;
       if (typeof source !== "object" || source === null) return null;

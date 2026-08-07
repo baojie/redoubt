@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@redoubt/core": "workspace:*",
-    "@redoubt/protocol": "workspace:*"
+    "@redoubt/protocol": "workspace:*",
+    "three": "^0.180.0"
   },
   "devDependencies": {
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "@types/three": "^0.180.0"
   }
 }

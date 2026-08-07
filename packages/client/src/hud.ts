@@ -30,6 +30,9 @@ export class Hud {
   private readonly deploy = must("deploy");
   private readonly deploySub = must("deploy-sub");
   private readonly deployOptions = must("deploy-options");
+  private readonly weapon = must("weapon");
+  private readonly crosshair = must("crosshair");
+  private readonly suppression = must("suppression");
 
   private helpShown = true;
 
@@ -38,10 +41,53 @@ export class Hud {
     this.help.style.display = this.helpShown ? "" : "none";
   }
 
+  /** A one-off line in the feed, for things the player needs told once. */
+  note(text: string): void {
+    this.notes.push(text);
+    while (this.notes.length > 3) this.notes.shift();
+  }
+
+  private readonly notes: string[] = [];
+
+  setCrosshair(shown: boolean): void {
+    this.crosshair.classList.toggle("shown", shown);
+  }
+
+  /**
+   * Being shot at narrows the world. PLAN §5 puts this above weapon models in
+   * importance, and it is driven by the authoritative suppression value rather
+   * than by anything the client decides for itself.
+   */
+  setSuppression(value: number): void {
+    this.suppression.style.opacity = String(Math.max(0, Math.min(1, value)));
+  }
+
+  drawWeapon(self: SelfView | null, tick: number): void {
+    if (self === null || self.status !== "alive") {
+      this.weapon.textContent = "";
+      return;
+    }
+    const reloading = self.reloadingUntilTick > tick;
+    if (reloading) {
+      const left = rules.ticksToSeconds(self.reloadingUntilTick - tick);
+      this.weapon.innerHTML = `<span class="warn">RELOADING ${left.toFixed(1)}s</span>`;
+      return;
+    }
+    const dry = self.magazine === 0;
+    this.weapon.innerHTML =
+      `<span class="${dry ? "warn" : ""}">${self.magazine}</span>` +
+      ` / ${self.ammo}` +
+      (dry ? "   <span class=\"warn\">R to reload</span>" : "");
+  }
+
   drawHelp(): void {
     this.help.textContent = [
       "WASD    move",
-      "click   engage nearest enemy",
+      "mouse   look          (3D)",
+      "click   fire          (3D)",
+      "R       reload        (3D)",
+      "Tab     3D / map view",
+      "click   engage nearest enemy (map)",
       "E       resupply",
       "B       build nearest site",
       "R       place rally      (SL)",
@@ -127,7 +173,8 @@ export class Hud {
   }
 
   drawFeed(entries: ReadonlyArray<{ tick: number; event: GameEvent }>): void {
-    this.feed.textContent = entries.map((e) => describe(e.event)).join("\n");
+    const lines = [...this.notes, ...entries.map((e) => describe(e.event))];
+    this.feed.textContent = lines.join("\n");
   }
 
   showDeploy(options: DeployOption[], world: ClientWorld): void {

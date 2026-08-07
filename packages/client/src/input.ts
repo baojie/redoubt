@@ -30,6 +30,7 @@ export type ActionKey =
   | "exitVehicle"
   | "giveUp"
   | "deploy"
+  | "toggleView"
   | "toggleOverview"
   | "toggleHelp";
 
@@ -47,6 +48,7 @@ const ACTION_BINDINGS: Readonly<Record<string, ActionKey>> = {
   KeyX: "giveUp",
   Space: "deploy",
   KeyM: "toggleOverview",
+  Tab: "toggleView",
   Slash: "toggleHelp",
 };
 

@@ -484,6 +484,26 @@ export const SUPPLY_TRANSFER_MAX_SPEED_MPS = 0.1;
 export const SUPPLY_UNLOAD_REACH_M = FOB_BUILD_RADIUS_M;
 
 // ---------------------------------------------------------------------------
+// Soldier geometry
+// ---------------------------------------------------------------------------
+
+/**
+ * These live here rather than in terrain.ts because they are rule values, not
+ * scenery: the body cylinder is what a round has to hit, and eye height is
+ * where a round starts. terrain.ts imports them, not the other way round —
+ * re-exporting them from here would make the two modules mutually dependent.
+ */
+
+/** Eye height above ground for a standing soldier. */
+export const EYE_HEIGHT_M = 1.7;
+/** Centre of mass: the aim point, and the centre of the hit cylinder. */
+export const TORSO_HEIGHT_M = 1.1;
+/** Radius of the cylinder a round has to hit. */
+export const BODY_RADIUS_M = 0.35;
+/** Half-height of that cylinder, measured from the torso point. */
+export const BODY_HALF_HEIGHT_M = 0.9;
+
+// ---------------------------------------------------------------------------
 // Map
 // ---------------------------------------------------------------------------
 

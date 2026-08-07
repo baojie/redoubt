@@ -43,6 +43,13 @@ export class Connection {
   /** Recent gameplay events, newest last. Drawn as a feed. */
   readonly feed: Array<{ tick: number; event: GameEvent }> = [];
 
+  /**
+   * Rounds fired nearby since the renderer last looked. Drained rather than
+   * accumulated: a tracer is a one-frame instruction to start an animation,
+   * not a piece of world state.
+   */
+  private shots: Array<Extract<GameEvent, { t: "shotFired" }>> = [];
+
   pingMs = 0;
   connected = false;
 
@@ -121,6 +128,10 @@ export class Connection {
 
       case "events": {
         for (const event of message.events) {
+          if (event.t === "shotFired") {
+            if (this.shots.length < MAX_QUEUED_SHOTS) this.shots.push(event);
+            continue;
+          }
           this.feed.push({ tick: message.tick, event });
         }
         while (this.feed.length > MAX_FEED) this.feed.shift();
@@ -140,6 +151,13 @@ export class Connection {
         return;
       }
     }
+  }
+
+  /** Take the tracers accumulated since the last frame. */
+  takeShots(): Array<Extract<GameEvent, { t: "shotFired" }>> {
+    const shots = this.shots;
+    this.shots = [];
+    return shots;
   }
 
   /** Send one input frame and predict it locally. Returns its sequence number. */
@@ -186,3 +204,5 @@ export class Connection {
 }
 
 const MAX_FEED = 8;
+/** A frame's worth of gunfire. Anything beyond this is not readable anyway. */
+const MAX_QUEUED_SHOTS = 128;

@@ -11,7 +11,7 @@ import type { PlayerView, Snapshot } from "@redoubt/protocol";
 import { ClientWorld } from "../src/world.js";
 
 function player(id: number, x: number, y: number): PlayerView {
-  return { id, team: 0, squad: 0, role: "rifleman", status: "alive", x, y };
+  return { id, team: 0, squad: 0, role: "rifleman", status: "alive", x, y, yaw: 0 };
 }
 
 function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
