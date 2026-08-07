@@ -31,12 +31,35 @@ export interface BatchSummary {
 const TARGET_MIN_MINUTES = 30;
 const TARGET_MAX_MINUTES = 60;
 
-export function runBatch(firstSeed: number, matches: number): BatchSummary {
+export function runBatch(
+  firstSeed: number,
+  matches: number,
+  laneName?: string,
+): BatchSummary {
   const results: MatchStats[] = [];
   for (let i = 0; i < matches; i++) {
-    results.push(runMatch({ seed: firstSeed + i }).stats);
+    results.push(runMatch({ seed: firstSeed + i, laneName }).stats);
   }
   return summarise(results);
+}
+
+/**
+ * Win split per RAAS lane.
+ *
+ * Aggregate balance can hide a map problem completely: two lanes biased in
+ * opposite directions average out to a perfect 50/50 while every individual
+ * match is unfair. Any layer that ships has to be checked this way, not just
+ * in total.
+ */
+export function runPerLane(
+  firstSeed: number,
+  matchesPerLane: number,
+  lanes: readonly string[],
+): Array<{ lane: string; summary: BatchSummary }> {
+  return lanes.map((lane) => ({
+    lane,
+    summary: runBatch(firstSeed, matchesPerLane, lane),
+  }));
 }
 
 function avg(values: readonly number[]): number {

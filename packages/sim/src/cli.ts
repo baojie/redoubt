@@ -7,7 +7,8 @@
  *   pnpm sim --seed 7 --lane Ridge --hash
  */
 
-import { formatBatch, runBatch } from "./batch.js";
+import { RIVERBEND } from "@redoubt/core";
+import { formatBatch, runBatch, runPerLane } from "./batch.js";
 import { formatReport } from "./report.js";
 import { runMatch } from "./runMatch.js";
 
@@ -18,12 +19,13 @@ interface Args {
   playersPerTeam?: number;
   hash: boolean;
   quiet: boolean;
+  perLane: boolean;
 }
 
 const DEFAULT_SEED = 42;
 
 function parseArgs(argv: readonly string[]): Args {
-  const args: Args = { seed: DEFAULT_SEED, matches: 1, hash: false, quiet: false };
+  const args: Args = { seed: DEFAULT_SEED, matches: 1, hash: false, quiet: false, perLane: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -49,6 +51,9 @@ function parseArgs(argv: readonly string[]): Args {
         break;
       case "--quiet":
         args.quiet = true;
+        break;
+      case "--per-lane":
+        args.perLane = true;
         break;
       // pnpm inserts a bare `--` when forwarding args through the root script.
       case "--":
@@ -88,6 +93,7 @@ function printUsage(): void {
       "  --players <n>   players per team",
       "  --hash          print the per-tick state hash digest",
       "  --quiet         suppress the report, print one summary line",
+      "  --per-lane      with --matches: balance broken down by RAAS lane",
       "",
     ].join("\n"),
   );
@@ -95,6 +101,27 @@ function printUsage(): void {
 
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
+
+  if (args.matches > 1 && args.perLane) {
+    const started = process.hrtime.bigint();
+    const rows = runPerLane(args.seed, args.matches, RIVERBEND.lanes.map((l) => l.name));
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    process.stdout.write(`\n  PER-LANE BALANCE   ${args.matches} matches per lane\n`);
+    process.stdout.write(`${"=".repeat(72)}\n\n`);
+    process.stdout.write("  lane          BLUE    RED    mean min   in band\n");
+    for (const { lane, summary } of rows) {
+      const total = Math.max(1, summary.matches);
+      process.stdout.write(
+        `  ${lane.padEnd(12)}` +
+          `${((summary.wins[0] / total) * 100).toFixed(0).padStart(5)}%` +
+          `${((summary.wins[1] / total) * 100).toFixed(0).padStart(7)}%` +
+          `${summary.durationMinutes.mean.toFixed(1).padStart(9)}` +
+          `${`${summary.durationMinutes.withinTarget}/${summary.matches}`.padStart(10)}\n`,
+      );
+    }
+    process.stdout.write(`\nWall clock      ${(elapsedMs / 1000).toFixed(1)}s\n\n`);
+    return;
+  }
 
   if (args.matches > 1) {
     const started = process.hrtime.bigint();
