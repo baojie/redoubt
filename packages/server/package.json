@@ -1,0 +1,20 @@
+{
+  "name": "@redoubt/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoritative game server. Owns the only real GameState.",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts"
+  },
+  "dependencies": {
+    "@redoubt/bots": "workspace:*",
+    "@redoubt/core": "workspace:*",
+    "@redoubt/protocol": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
+  }
+}

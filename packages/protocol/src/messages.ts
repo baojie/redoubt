@@ -227,6 +227,13 @@ export interface WelcomePayload {
   team: TeamId;
   squad: SquadId;
   tickRateHz: number;
+  /**
+   * How often snapshots are sent, which is deliberately slower than the tick
+   * rate. The client needs it to size its interpolation delay: it renders one
+   * snapshot interval in the past so it always has two frames to interpolate
+   * between.
+   */
+  snapshotRateHz: number;
   /** Server tick at the moment of joining, so the client can align its clock. */
   tick: number;
   map: MapDefinition;
