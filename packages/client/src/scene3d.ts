@@ -26,11 +26,34 @@ const MESH_RESOLUTION_M = 8;
 const VIEW_DISTANCE_M = 1200;
 
 const SKY = 0x8ea6bd;
-const FOG_NEAR = 260;
-const FOG_FAR = 950;
+/**
+ * Fog has to start well beyond the range people actually fight at.
+ *
+ * The first values started it at 260 m, which is barely past the 200 m
+ * engagement range — so every contact you were meant to be shooting at was
+ * already half dissolved into the sky. Haze belongs at the far edge of the
+ * map, not in the middle of a firefight.
+ */
+const FOG_NEAR = 700;
+const FOG_FAR = 1600;
 
 const TEAM_COLOUR: Record<TeamId, number> = { 0: 0x4da3ff, 1: 0xff6b57 };
 const DOWNED_COLOUR = 0xc9a227;
+
+/**
+ * Friendly markers, and only friendly.
+ *
+ * At 300 m a soldier is three pixels; without a marker a teammate is
+ * indistinguishable from a shrub, and you cannot tell whether the shape on the
+ * ridge is your squad or theirs. Every game in this genre puts a nameplate on
+ * friendlies for exactly that reason.
+ *
+ * Enemies deliberately get nothing. Spotting them is the skill the whole
+ * engagement rests on, and drawing a marker over them would be a wallhack
+ * shipped as a feature.
+ */
+const MARKER_HEIGHT_M = 2.4;
+const MARKER_MIN_SCREEN_SIZE = 0.9;
 
 /** A tracer lives this long on screen after its round lands. */
 const TRACER_LINGER_S = 0.12;
@@ -71,6 +94,7 @@ export class Scene3D {
   readonly terrain: Terrain;
 
   private readonly bodies = new Map<number, THREE.Object3D>();
+  private readonly markers = new Map<number, THREE.Sprite>();
   private readonly structures = new Map<string, THREE.Object3D>();
   private readonly tracers: Tracer[] = [];
   private readonly tracerLines: THREE.LineSegments;
@@ -100,6 +124,21 @@ export class Scene3D {
     );
     this.tracerLines.frustumCulled = false;
     this.scene.add(this.tracerLines);
+  }
+
+  /** How many player bodies are currently in the scene. Debug aid. */
+  get bodyCount(): number {
+    return this.bodies.size;
+  }
+
+  /** Where each body actually ended up in scene space. Debug aid. */
+  debugBodies(): Array<{ id: number; pos: number[]; visible: boolean; inScene: boolean }> {
+    return [...this.bodies].map(([id, object]) => ({
+      id,
+      pos: object.position.toArray().map((n) => Math.round(n * 10) / 10),
+      visible: object.visible,
+      inScene: object.parent === this.scene,
+    }));
   }
 
   // -------------------------------------------------------------------------
@@ -177,6 +216,22 @@ export class Scene3D {
         this.scene.add(body);
       }
 
+      const friendly = player.team === team;
+      let marker = this.markers.get(player.id);
+      if (friendly && marker === undefined) {
+        marker = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            color: TEAM_COLOUR[player.team],
+            depthTest: false,
+            transparent: true,
+            opacity: 0.9,
+          }),
+        );
+        marker.renderOrder = 10;
+        this.markers.set(player.id, marker);
+        this.scene.add(marker);
+      }
+
       const at = world.interpolate(player.track, renderTick);
       const groundZ = this.terrain.heightAt(at.x, at.y);
       const down = player.status === "downed";
@@ -187,13 +242,32 @@ export class Scene3D {
       const material = ((body as THREE.Mesh).material as THREE.MeshLambertMaterial);
       material.color.setHex(down ? DOWNED_COLOUR : TEAM_COLOUR[player.team]);
       // Friend or foe is the single most important thing to read instantly.
-      material.emissive.setHex(player.team === team ? 0x101820 : 0x200000);
+      material.emissive.setHex(friendly ? 0x101820 : 0x200000);
+
+      if (marker !== undefined) {
+        marker.position.copy(
+          worldToScene(at.x, at.y, groundZ + MARKER_HEIGHT_M),
+        );
+        // Scale with distance so the marker stays the same size on screen —
+        // it is a label, and a label that shrinks to nothing is not one.
+        const range = marker.position.distanceTo(this.camera.position);
+        const size = Math.max(MARKER_MIN_SCREEN_SIZE, range * 0.012);
+        marker.scale.set(size, size, 1);
+        (marker.material as THREE.SpriteMaterial).color.setHex(
+          down ? DOWNED_COLOUR : TEAM_COLOUR[player.team],
+        );
+      }
     }
 
     for (const [id, object] of this.bodies) {
       if (seen.has(id)) continue;
       this.scene.remove(object);
       this.bodies.delete(id);
+    }
+    for (const [id, marker] of this.markers) {
+      if (seen.has(id)) continue;
+      this.scene.remove(marker);
+      this.markers.delete(id);
     }
   }
 
@@ -249,7 +323,10 @@ export class Scene3D {
       place(`rally:${r.id}`, r.x, r.y, 1.4, 0.8, r.live ? 0x8fd0ff : 0x6b7785);
     }
     for (const v of world.vehicles.values()) {
-      place(`veh:${v.id}`, v.x, v.y, 2.4, 3, TEAM_COLOUR[v.team]);
+      // Deliberately smaller than it was: a 3 m cube at the vehicle spawn
+      // swallowed every teammate standing beside it, which read as "there is
+      // nobody here".
+      place(`veh:${v.id}`, v.x, v.y, 2.2, 2.2, TEAM_COLOUR[v.team]);
     }
     void team;
 

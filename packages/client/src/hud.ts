@@ -14,6 +14,8 @@ import type { NetStats } from "./net.js";
 import type { ClientWorld } from "./world.js";
 
 export interface DeployOption {
+  /** Stable identity, so the button is not rebuilt while it is being clicked. */
+  key: string;
   label: string;
   detail: string;
   readyInTicks: number;
@@ -177,25 +179,61 @@ export class Hud {
     this.feed.textContent = lines.join("\n");
   }
 
+  /**
+   * The deploy screen, refreshed every frame but rebuilt only when the set of
+   * spawns actually changes.
+   *
+   * Rebuilding the buttons each frame looked harmless and made them
+   * unclickable: a click is a mousedown and a mouseup on the *same* element,
+   * and at 60 fps the element was replaced in between. The countdowns still
+   * update every frame — only the DOM identity is preserved.
+   */
   showDeploy(options: DeployOption[], world: ClientWorld): void {
     this.deploy.classList.add("shown");
     this.deploySub.textContent =
       world.phase === "finished" ? "match over — next round shortly" : "choose a spawn";
 
-    this.deployOptions.replaceChildren();
-    for (const option of options) {
-      const button = document.createElement("button");
+    const signature = options.map((o) => o.key).join("|");
+    if (signature !== this.deploySignature) {
+      this.deploySignature = signature;
+      this.deployButtons = [];
+      this.deployOptions.replaceChildren();
+      for (const option of options) {
+        const button = document.createElement("button");
+        // Held in a closure that is replaced along with the button, so a
+        // stale option can never be what actually fires.
+        const row = { button, option };
+        button.addEventListener("click", () => row.option.onPick());
+        this.deployButtons.push(row);
+        this.deployOptions.append(button);
+      }
+    }
+
+    for (let i = 0; i < this.deployButtons.length; i++) {
+      const row = this.deployButtons[i];
+      const option = options[i];
+      if (row === undefined || option === undefined) continue;
+      row.option = option;
       const seconds = Math.ceil(rules.ticksToSeconds(option.readyInTicks));
-      button.textContent =
-        seconds > 0 ? `${option.label} — ${seconds}s\n${option.detail}` : `${option.label}\n${option.detail}`;
-      button.disabled = !option.enabled || option.readyInTicks > 0;
-      button.addEventListener("click", option.onPick);
-      this.deployOptions.append(button);
+      row.button.textContent =
+        seconds > 0
+          ? `${option.label} — ${seconds}s\n${option.detail}`
+          : `${option.label}\n${option.detail}`;
+      row.button.disabled = !option.enabled || option.readyInTicks > 0;
     }
   }
 
+  private deploySignature = "";
+  private deployButtons: Array<{ button: HTMLButtonElement; option: DeployOption }> = [];
+
   hideDeploy(): void {
     this.deploy.classList.remove("shown");
+    this.deploySignature = "";
+    this.deployButtons = [];
+  }
+
+  get deployShown(): boolean {
+    return this.deploy.classList.contains("shown");
   }
 }
 

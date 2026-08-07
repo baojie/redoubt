@@ -259,11 +259,17 @@ function refreshDeployScreen(): void {
     return;
   }
 
+  // Let go of the mouse. Pointer lock hides the cursor and routes every click
+  // to the canvas, so a deploy screen shown while still locked is a menu you
+  // can see and cannot use.
+  firstPerson.release();
+
   const waited = world.tick - self.deployingSinceTick;
   const options: DeployOption[] = [];
 
   for (const rally of world.rallies.values()) {
     options.push({
+      key: `rally:${rally.id}`,
       label: "Rally point",
       detail: rally.live ? "your squad, on the objective" : "blocked or on cooldown",
       readyInTicks: Math.max(0, rules.RALLY_SPAWN_DELAY_TICKS - waited),
@@ -276,6 +282,7 @@ function refreshDeployScreen(): void {
     if (deployable.kind !== "habitat" || deployable.team !== self.team) continue;
     if (!deployable.built) continue;
     options.push({
+      key: `habitat:${deployable.id}`,
       label: "Habitat",
       detail: deployable.overrun ? "OVERRUN — enemies on it" : "forward base",
       readyInTicks: Math.max(0, rules.HABITAT_SPAWN_DELAY_TICKS - waited),
@@ -289,6 +296,7 @@ function refreshDeployScreen(): void {
   }
 
   options.push({
+    key: "main",
     label: "Main base",
     detail: "safe, and a very long walk",
     readyInTicks: Math.max(0, rules.MAIN_BASE_SPAWN_DELAY_TICKS - waited),
@@ -388,6 +396,59 @@ function frame(): void {
   hud.setSuppression(0);
   refreshDeployScreen();
 }
+
+/**
+ * A handle for poking at a live session from the devtools console.
+ *
+ * Deliberately kept: "I cannot see anyone" is not answerable from a
+ * screenshot, and the difference between "the server never sent them", "the
+ * client dropped them" and "they are being drawn somewhere wrong" is three
+ * lines of console away with this and unguessable without it.
+ */
+declare global {
+  interface Window {
+    redoubt?: {
+      connection: Connection;
+      scene: Scene3D | null;
+      report: () => Record<string, unknown>;
+    };
+  }
+}
+
+window.redoubt = {
+  connection,
+  get scene() {
+    return scene;
+  },
+  report: () => {
+    const world = connection.world;
+    const self = world.self;
+    return {
+      tick: world.tick,
+      selfId: connection.welcome?.playerId,
+      selfStatus: self?.status,
+      selfPos: self === null ? null : { x: self.x, y: self.y },
+      playersKnown: world.players.size,
+      playersAlive: [...world.players.values()].filter((p) => p.status !== "deploying").length,
+      bodiesDrawn: scene?.bodyCount ?? 0,
+      nearest: [...world.players.values()]
+        .filter((p) => p.id !== connection.welcome?.playerId && self !== null)
+        .map((p) => ({
+          id: p.id,
+          team: p.team,
+          status: p.status,
+          dist: Math.round(Math.hypot(p.x - (self?.x ?? 0), p.y - (self?.y ?? 0))),
+        }))
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 5),
+      camera: scene === null ? null : {
+        pos: scene.camera.position.toArray().map((n) => Math.round(n * 10) / 10),
+        yaw: Math.round(scene.camera.rotation.y * 100) / 100,
+      },
+      bodies: scene === null ? [] : scene.debugBodies().slice(0, 4),
+    };
+  },
+};
 
 resize();
 requestAnimationFrame(frame);
