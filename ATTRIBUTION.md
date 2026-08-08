@@ -1,25 +1,39 @@
 # Third-party assets
 
-This project is otherwise asset-free by design: the terrain is generated from
-the match seed and every other shape is built from primitives at runtime. The
-one exception is listed here.
+Most of this project is asset-free by design: the terrain is generated from the
+match seed, the buildings are textured procedurally, and the weapons, gear and
+effects are built from primitives at runtime. The exceptions — the soldier and
+the two vehicles — are listed here, with their licences.
 
-## RiggedFigure
+## Soldier
 
-`packages/client/public/models/RiggedFigure.glb` — the soldier model.
+`packages/client/public/models/Soldier.glb` — every soldier on the map.
 
-- **Source**: [Khronos glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/RiggedFigure)
-- **Licence**: Creative Commons Attribution 4.0 International (CC-BY 4.0)
-- **Full licence text**: `packages/client/public/models/RiggedFigure.LICENSE.md`
+- **Source**: "Soldier" by Quaternius, via [Poly Pizza](https://poly.pizza/m/oAArCNHjFB)
+- **Licence**: Creative Commons Attribution 3.0 (CC-BY 3.0), as stated by the host
+- **Licence note**: `packages/client/public/models/Soldier.LICENSE.md`
 
-Used unmodified, scaled at runtime to match the hit cylinder the server tests
-rounds against. Attribution is required by the licence and is the reason this
-file exists; keep it if you redistribute the client.
+Attribution is required by this licence and is the reason this entry exists;
+keep it if you redistribute the client. Note that Quaternius releases most work
+as CC0 and the vehicles here are CC0 — Poly Pizza states CC-BY for this model
+specifically, so it is treated as the stricter of the two.
 
-Deliberately *not* used: Khronos's `CesiumMan`, which is otherwise a better
-looking model, because it carries an additional trademark limitation on top of
-CC-BY. A trademark obligation is a worse thing to inherit than a blocky
-silhouette.
+Used unmodified. Scaled at runtime to the hit cylinder the server tests rounds
+against, and its own animation clips are played as authored: idle, walk, run
+and death. Only the uniform material takes a team colour; the face, hair and
+boots keep theirs.
+
+### Replaced: RiggedFigure
+
+Khronos's `RiggedFigure` (CC-BY 4.0) was the soldier until this model arrived.
+It was an unclothed mannequin with no face, posed by hand — two shoulder bones
+and two hip bones driven by a sine wave — and because every mesh on it was
+painted the team colour it read as a flat red or blue silhouette. It has been
+removed rather than left in the tree: nothing references it, and an unused
+binary with an attribution obligation is a liability, not an asset.
+
+Also deliberately *not* used: Khronos's `CesiumMan`, which carries an additional
+trademark limitation on top of its CC-BY licence.
 
 ## Vehicle models
 

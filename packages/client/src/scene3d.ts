@@ -367,7 +367,13 @@ export class Scene3D {
   }
 
   /** Sync the visible bodies with what the client believes is out there. */
-  syncPlayers(world: ClientWorld, renderTick: number, selfId: number, team: TeamId): void {
+  syncPlayers(
+    world: ClientWorld,
+    renderTick: number,
+    selfId: number,
+    team: TeamId,
+    dt = 0,
+  ): void {
     const seen = new Set<number>();
 
     for (const player of world.players.values()) {
@@ -416,10 +422,14 @@ export class Scene3D {
       const moved = previous === undefined ? 0 : Math.hypot(at.x - previous.x, at.y - previous.y);
       this.lastSeen.set(player.id, { x: at.x, y: at.y });
 
-      body.position.copy(
-        worldToScene(at.x, at.y, groundZ + (down ? DOWN_TORSO_HEIGHT_M : rules.TORSO_HEIGHT_M)),
-      );
       const rig0 = this.rigs.get(player.id);
+      // A rigged soldier is put on the ground by its own death clip, so it
+      // keeps its standing offset and is never tipped over by hand. The
+      // primitive fallback has no such clip and is laid down the old way.
+      const lieDown = down && rig0 === undefined;
+      body.position.copy(
+        worldToScene(at.x, at.y, groundZ + (lieDown ? DOWN_TORSO_HEIGHT_M : rules.TORSO_HEIGHT_M)),
+      );
       body.rotation.set(0, sceneYaw(player.yaw) + (rig0?.facingOffset ?? 0), 0);
 
       // Soldiers do not collide with each other — they can and do stand in the
@@ -428,7 +438,7 @@ export class Scene3D {
       // inside of their own head.
       const fromCamera = body.position.distanceTo(this.camera.position);
       body.visible = fromCamera > BODY_HIDE_WITHIN_M;
-      if (down) {
+      if (lieDown) {
         // Face down on the ground rather than a shrunken standing figure: a
         // casualty has to be findable, and its pose is the only cue.
         body.rotation.x = -Math.PI / 2;
@@ -439,10 +449,9 @@ export class Scene3D {
 
       const rig = rig0;
       if (rig !== undefined) {
-        if (!down) {
-          const phase = this.walkPhase.get(player.id) ?? 0;
-          this.walkPhase.set(player.id, this.soldiers.poseWalk(rig, phase, moved));
-        }
+        // Standing, walking, running or dead — chosen from what the body
+        // actually did this frame, not from a flag we set somewhere else.
+        this.soldiers.advance(rig, dt, moved, !down);
         this.soldiers.tint(rig, colour, emissive);
       } else {
         if (!down) this.animate(body as THREE.Group, moved);

@@ -504,7 +504,7 @@ function frame(): void {
       swayM,
       self === null ? 0 : reloadFraction(self.reloadingUntilTick, world.tick),
     );
-    scene.syncPlayers(world, renderTick, welcome.playerId, welcome.team as TeamId);
+    scene.syncPlayers(world, renderTick, welcome.playerId, welcome.team as TeamId, dt);
     scene.syncStructures(world, welcome.team as TeamId, world.self?.vehicle ?? null);
     for (const shot of connection.takeShots()) {
       // Our own rounds kick the view. Driven by the server's confirmation of
