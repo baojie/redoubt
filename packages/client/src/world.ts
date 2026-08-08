@@ -47,6 +47,14 @@ export class ClientWorld {
   readonly deployables = new Map<number, DeployableView>();
   readonly rallies = new Map<number, RallyView>();
   readonly vehicles = new Map<number, RemoteVehicle>();
+  /**
+   * Grenades in the air, replaced wholesale each snapshot.
+   *
+   * Not interpolated. They arrive at 10 Hz on a ballistic arc and live about
+   * three seconds; a grenade that lags a tenth of a second behind is a grenade
+   * you can still see coming, which is all it has to be.
+   */
+  readonly grenades = new Map<number, { x: number; y: number; z: number }>();
   readonly controlPoints = new Map<number, ControlPointView>();
   readonly teams = new Map<number, TeamView>();
 
@@ -71,6 +79,7 @@ export class ClientWorld {
       this.deployables.clear();
       this.rallies.clear();
       this.vehicles.clear();
+      this.grenades.clear();
     }
 
     for (const view of snapshot.players) {
@@ -99,6 +108,12 @@ export class ClientWorld {
     for (const id of snapshot.removed.deployables) this.deployables.delete(id);
     for (const id of snapshot.removed.rallies) this.rallies.delete(id);
     for (const id of snapshot.removed.vehicles) this.vehicles.delete(id);
+
+    // Sent in full every snapshot, so the list is replaced rather than merged.
+    this.grenades.clear();
+    for (const view of snapshot.grenades) {
+      this.grenades.set(view.id, { x: view.x, y: view.y, z: view.z });
+    }
   }
 
   /**

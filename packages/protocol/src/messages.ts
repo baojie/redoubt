@@ -47,8 +47,11 @@ import type {
  * Any change to what is on the wire has to come with a bump, including one that
  * only adds a field. "Additive changes are compatible" is only true for readers
  * that check whether the field arrived.
+ *
+ * 3 added grenades: a count on `SelfView` and the ones in the air on the
+ * snapshot.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // Intents: what a client is allowed to ask for
@@ -71,6 +74,7 @@ export type Intent =
    * lag compensation; the server clamps it into a legal window.
    */
   | { t: "fire"; renderTick?: number }
+  | { t: "throwGrenade" }
   | { t: "reload" }
   /** Hold to aim down the sights. */
   | { t: "aim"; aiming: boolean }
@@ -170,6 +174,8 @@ export interface SelfView extends PlayerView {
   aiming: boolean;
   /** A casualty this player is hauling, or null. */
   dragging: PlayerId | null;
+  /** Grenades left in hand, for the count on the HUD. */
+  grenades: number;
   /**
    * Ticks of unbroken movement, which is what the run-up is built from.
    *
@@ -226,6 +232,14 @@ export interface RallyView {
   live: boolean;
 }
 
+/** A grenade in flight, for the renderer. */
+export interface GrenadeView {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface VehicleView {
   id: VehicleId;
   team: TeamId;
@@ -269,6 +283,14 @@ export interface Snapshot {
   deployables: DeployableView[];
   rallies: RallyView[];
   vehicles: VehicleView[];
+  /**
+   * Grenades in the air.
+   *
+   * Sent in full rather than diffed: there are almost never more than a handful
+   * and each lives about three seconds, so the dirty-tracking that pays for
+   * itself on players and vehicles would cost more than it saves here.
+   */
+  grenades: GrenadeView[];
   teams: TeamView[];
 
   removed: {

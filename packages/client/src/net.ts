@@ -49,6 +49,7 @@ export class Connection {
    * not a piece of world state.
    */
   private shots: Array<Extract<GameEvent, { t: "shotFired" }>> = [];
+  private blasts: Array<Extract<GameEvent, { t: "grenadeExploded" }>> = [];
 
   pingMs = 0;
   connected = false;
@@ -128,6 +129,10 @@ export class Connection {
 
       case "events": {
         for (const event of message.events) {
+          if (event.t === "grenadeExploded") {
+            if (this.blasts.length < MAX_QUEUED_SHOTS) this.blasts.push(event);
+            continue;
+          }
           if (event.t === "shotFired") {
             if (this.shots.length < MAX_QUEUED_SHOTS) this.shots.push(event);
             continue;
@@ -154,6 +159,13 @@ export class Connection {
   }
 
   /** Take the tracers accumulated since the last frame. */
+  /** Explosions since the last call. Drained like shots are. */
+  takeBlasts(): Array<Extract<GameEvent, { t: "grenadeExploded" }>> {
+    const taken = this.blasts;
+    this.blasts = [];
+    return taken;
+  }
+
   takeShots(): Array<Extract<GameEvent, { t: "shotFired" }>> {
     const shots = this.shots;
     this.shots = [];

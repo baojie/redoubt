@@ -172,6 +172,25 @@ if (autoJoin !== null) {
 
 const queuedIntents: Intent[] = [];
 
+/**
+ * Throw a grenade.
+ *
+ * Bound here rather than in `InputState`'s action table because that file
+ * belongs to another line of work at the moment; it should be folded in there,
+ * alongside the other action keys, once that settles.
+ *
+ * `4` and not `G`: G is already enter/exit vehicle, and rebinding a key people
+ * have been using is worse than picking a free one.
+ */
+window.addEventListener("keydown", (event) => {
+  if (event.code !== "Digit4" || event.repeat) return;
+  const target = event.target as HTMLElement | null;
+  const tag = target?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (connection.world.self === null) return;
+  queuedIntents.push({ t: "throwGrenade" });
+});
+
 function actionToIntent(action: ActionKey): Intent | null {
   const simple = SIMPLE_ACTION_INTENTS[action];
   if (simple !== undefined) return simple;
@@ -506,6 +525,8 @@ function frame(): void {
     );
     scene.syncPlayers(world, renderTick, welcome.playerId, welcome.team as TeamId, dt);
     scene.syncStructures(world, welcome.team as TeamId, world.self?.vehicle ?? null);
+    scene.syncGrenades(world);
+    for (const blast of connection.takeBlasts()) scene.addBlast(blast.at);
     for (const shot of connection.takeShots()) {
       // Our own rounds kick the view. Driven by the server's confirmation of
       // the shot rather than by the click, so the kick matches the rounds that

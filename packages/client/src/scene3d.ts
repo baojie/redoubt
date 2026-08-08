@@ -86,6 +86,12 @@ const WORLD_FLASH_SECONDS = 0.06;
 const WORLD_FLASH_SIZE_M = 0.55;
 const WORLD_FLASH_POOL = 48;
 
+/** A grenade is about the size of a fist; the fireball is not. */
+const GRENADE_RADIUS_M = 0.07;
+const BLAST_SECONDS = 0.55;
+const BLAST_SIZE_M = 9;
+const BLAST_POOL = 12;
+
 interface WorldFlash {
   sprite: THREE.Sprite;
   left: number;
@@ -154,6 +160,11 @@ export class Scene3D {
   /** Glowing heads for the player's own rounds, pooled like the flashes. */
   private readonly ownHeads: THREE.Sprite[] = [];
   private readonly maxTracers = 256;
+  /** Grenades in the air, and the fireballs they leave. */
+  private readonly grenadeMeshes = new Map<number, THREE.Mesh>();
+  private readonly blasts: Array<{ sprite: THREE.Sprite; left: number }> = [];
+  private nextBlast = 0;
+
   /** Muzzle flashes out in the world, one per shot anybody else fires. */
   private readonly flashes = new THREE.Group();
   private readonly worldFlashes: WorldFlash[] = [];
@@ -196,6 +207,7 @@ export class Scene3D {
     this.buildOwnStreaks();
     this.buildOwnHeads();
     this.buildWorldFlashes();
+    this.buildBlasts();
     this.scene.add(this.flashes);
   }
 
@@ -833,6 +845,78 @@ export class Scene3D {
   }
 
   /**
+   * Draw the grenades that are in the air.
+   *
+   * Small and dark, and deliberately unmarked: a grenade you can see is a
+   * warning you earned by looking, not one the HUD handed you.
+   */
+  syncGrenades(world: ClientWorld): void {
+    for (const [id, at] of world.grenades) {
+      let mesh = this.grenadeMeshes.get(id);
+      if (mesh === undefined) {
+        mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(GRENADE_RADIUS_M, 8, 6),
+          new THREE.MeshStandardMaterial({ color: 0x2f3a2a, roughness: 0.8 }),
+        );
+        this.grenadeMeshes.set(id, mesh);
+        this.scene.add(mesh);
+      }
+      mesh.position.copy(worldToScene(at.x, at.y, at.z));
+    }
+
+    for (const [id, mesh] of this.grenadeMeshes) {
+      if (world.grenades.has(id)) continue;
+      this.scene.remove(mesh);
+      this.grenadeMeshes.delete(id);
+    }
+  }
+
+  /** A fireball where a grenade went off. */
+  addBlast(at: { x: number; y: number; z: number }): void {
+    const blast = this.blasts[this.nextBlast % this.blasts.length];
+    if (blast === undefined) return;
+    this.nextBlast++;
+    blast.sprite.position.copy(worldToScene(at.x, at.y, at.z + 1));
+    blast.sprite.visible = true;
+    blast.left = BLAST_SECONDS;
+  }
+
+  private buildBlasts(): void {
+    for (let i = 0; i < BLAST_POOL; i++) {
+      const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: flashTexture(),
+          color: 0xffb257,
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      sprite.visible = false;
+      this.blasts.push({ sprite, left: 0 });
+      this.scene.add(sprite);
+    }
+  }
+
+  /**
+   * Fade the fireballs, growing them as they go.
+   *
+   * Expanding while fading is what makes it read as an explosion rather than
+   * as a lamp being switched off.
+   */
+  private updateBlasts(dt: number): void {
+    for (const blast of this.blasts) {
+      if (blast.left <= 0) continue;
+      blast.left -= dt;
+      const life = Math.max(0, blast.left / BLAST_SECONDS);
+      blast.sprite.visible = life > 0;
+      blast.sprite.scale.setScalar(BLAST_SIZE_M * (1.6 - life));
+      (blast.sprite.material as THREE.SpriteMaterial).opacity = life;
+    }
+  }
+
+  /**
    * Fade the muzzle flashes standing out in the world.
    *
    * These are how you find out where fire is coming from. Culling means you
@@ -988,6 +1072,7 @@ export class Scene3D {
     this.grass.update(this.camera.position.x, -this.camera.position.z, dt);
     this.updateTracers(dt);
     this.updateWorldFlashes(dt);
+    this.updateBlasts(dt);
     this.renderer.render(this.scene, this.camera);
 
     // Only worth a second pass over the scene when there is actually

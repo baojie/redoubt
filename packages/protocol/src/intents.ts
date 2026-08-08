@@ -66,6 +66,9 @@ export function intentToCommand(player: PlayerId, intent: Intent): Command | nul
       if (!finite(intent.yaw) || !finite(intent.pitch)) return null;
       return { t: "look", player, yaw: intent.yaw, pitch: intent.pitch };
     }
+    case "throwGrenade":
+      return { t: "throwGrenade", player };
+
     case "fire": {
       const renderTick = intent.renderTick;
       if (renderTick !== undefined && !finite(renderTick)) return null;

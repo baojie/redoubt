@@ -26,6 +26,7 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     deployables: [],
     rallies: [],
     vehicles: [],
+    grenades: [],
     teams: [],
     removed: { players: [], fobs: [], deployables: [], rallies: [], vehicles: [] },
     doubleNeutral: false,
