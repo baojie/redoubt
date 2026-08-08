@@ -10,6 +10,7 @@ import { cloneVec2, type Vec2 } from "./math.js";
 import { Rng } from "./rng.js";
 import { RIVERBEND } from "./maps/riverbend.js";
 import {
+  GRENADES_PER_SOLDIER,
   ARMOURED_VEHICLES_PER_TEAM,
   LOGISTICS_TRUCKS_PER_TEAM,
   MAGAZINE_ROUNDS,
@@ -144,6 +145,7 @@ export function createInitialState(options: MatchOptions): GameState {
         lastHitBy: null,
         invulnerable: false,
         infiniteAmmo: false,
+        grenades: GRENADES_PER_SOLDIER,
         runTicks: 0,
         kills: 0,
         deaths: 0,
@@ -225,6 +227,7 @@ export function createInitialState(options: MatchOptions): GameState {
     deployables: [],
     rallyPoints: [],
     vehicles,
+    grenades: [],
     nextEntityId,
     doubleNeutral: false,
     bleedFraction: { 0: 0, 1: 0 },

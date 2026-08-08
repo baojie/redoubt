@@ -19,6 +19,7 @@ import { World } from "./world.js";
 
 import { updateBleed, updateMatchEnd } from "./systems/bleed.js";
 import { updateControlPoints } from "./systems/capture.js";
+import { throwGrenade, updateGrenades } from "./systems/grenades.js";
 import {
   aimAt,
   beginReload,
@@ -114,6 +115,13 @@ export class Simulation {
     for (const command of commands) {
       this.applyCommand(command, builders, medics);
     }
+
+    // Grenades fly and detonate *before* casualties are resolved, so a blast
+    // and the gunfire it landed among become casualties in the same pass.
+    // Placed after the systems it used to sit among, this left a victim at
+    // negative health and still standing until the next tick — a state the
+    // whole-match invariant audit sees, and did: "player 3 is alive at -95".
+    updateGrenades(world);
 
     // Damage from this tick becomes casualties simultaneously, before any
     // system reads who is still standing.
@@ -368,6 +376,12 @@ export class Simulation {
         // reach here from a client at all, so there is no untrusted caller to
         // validate against.
         player.invulnerable = command.on;
+        return;
+      }
+
+      case "throwGrenade": {
+        const rejection = throwGrenade(world, player);
+        if (rejection !== null) world.reject(player.id, command.t, rejection);
         return;
       }
 

@@ -7,6 +7,7 @@
  * clients.
  */
 
+import type { Vec3 } from "./math.js";
 import type {
   ControlPointId,
   DeployableId,
@@ -147,6 +148,20 @@ export type GameEvent =
        * One round, from muzzle to impact. Carries time of flight so a client
        * can draw a tracer that arrives when the round actually did.
        */
+      t: "grenadeThrown";
+      grenade: number;
+      thrower: PlayerId;
+      team: TeamId;
+      from: Vec3;
+    }
+  | {
+      /** A grenade went off. Carries where, so clients can put an effect there. */
+      t: "grenadeExploded";
+      grenade: number;
+      thrower: PlayerId;
+      at: Vec3;
+    }
+  | {
       t: "shotFired";
       tick: number;
       shooter: PlayerId;

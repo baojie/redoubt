@@ -25,6 +25,7 @@ import {
   DAMAGE_PER_HIT,
   ENGAGEMENT_COOLDOWN_TICKS,
   LAG_COMPENSATION_TICKS,
+  GRENADES_PER_SOLDIER,
   MAGAZINE_ROUNDS,
   MAIN_BASE_RADIUS_M,
   VEHICLE_SPECS,
@@ -338,7 +339,9 @@ export type ResupplyRejection = "notAlive" | "noSourceInReach" | "sourceEmpty" |
  */
 export function tryResupply(world: World, player: Player): ResupplyRejection | null {
   if (player.status !== "alive") return "notAlive";
-  if (player.ammo >= PLAYER_MAX_AMMO) return "alreadyFull";
+  if (player.ammo >= PLAYER_MAX_AMMO && player.grenades >= GRENADES_PER_SOLDIER) {
+    return "alreadyFull";
+  }
 
   const wanted = Math.min(RESUPPLY_AMMO_PER_PULL, PLAYER_MAX_AMMO - player.ammo);
   const cost = wanted * RESUPPLY_AMMO_POINT_COST_PER_UNIT;
@@ -355,6 +358,7 @@ export function tryResupply(world: World, player: Player): ResupplyRejection | n
     if (fob.ammoPoints < cost) continue;
     fob.ammoPoints -= cost;
     player.ammo += wanted;
+    refillGrenades(player);
     return null;
   }
 
@@ -365,6 +369,7 @@ export function tryResupply(world: World, player: Player): ResupplyRejection | n
     if (fob.ammoPoints < cost) continue;
     fob.ammoPoints -= cost;
     player.ammo += wanted;
+    refillGrenades(player);
     return null;
   }
 
@@ -375,6 +380,7 @@ export function tryResupply(world: World, player: Player): ResupplyRejection | n
     if (vehicle.cargoAmmoPoints < cost) continue;
     vehicle.cargoAmmoPoints -= cost;
     player.ammo += wanted;
+    refillGrenades(player);
     return null;
   }
 
@@ -382,8 +388,20 @@ export function tryResupply(world: World, player: Player): ResupplyRejection | n
   const main = world.state.teams[player.team].mainBase;
   if (distance(main, player.pos) <= MAIN_BASE_RADIUS_M) {
     player.ammo = PLAYER_MAX_AMMO;
+    player.grenades = GRENADES_PER_SOLDIER;
     return null;
   }
 
   return foundSource ? "sourceEmpty" : "noSourceInReach";
+}
+
+/**
+ * Top a soldier back up to a full set of grenades.
+ *
+ * Free once the pull has been paid for. Charging separately would mean a
+ * soldier who is out of grenades but full on rounds cannot restock at all,
+ * because the pull is refused as "already full" before it ever gets here.
+ */
+function refillGrenades(player: Player): void {
+  player.grenades = GRENADES_PER_SOLDIER;
 }

@@ -299,6 +299,56 @@ export const MAIN_BASE_SPAWN_DELAY_TICKS = secondsToTicks(MAIN_BASE_SPAWN_DELAY_
 export const PLAYER_MAX_HEALTH = 100;
 export const PLAYER_MAX_AMMO = 100;
 
+// ---------------------------------------------------------------------------
+// Grenades
+// ---------------------------------------------------------------------------
+
+/**
+ * Every soldier carries three.
+ *
+ * Three is few enough that throwing one is a decision — the standard answer to
+ * a defended room or a dug-in position, not a substitute for shooting — and
+ * enough that a soldier is not saving their only one for a moment that never
+ * comes. They come back on resupply, out of the same ammo pool as rounds, so
+ * grenades are a logistics cost like everything else.
+ */
+export const GRENADES_PER_SOLDIER = 3;
+
+/** Time from leaving the hand to going off. Not adjustable by the thrower. */
+export const GRENADE_FUSE_S = 3.5;
+export const GRENADE_FUSE_TICKS = secondsToTicks(GRENADE_FUSE_S);
+
+/** How fast it leaves the hand, and how far that gets it on flat ground. */
+export const GRENADE_THROW_SPEED_MPS = 18;
+/** Thrown on an upward arc rather than flat, or it lands at your feet. */
+export const GRENADE_THROW_PITCH_RAD = 0.35;
+
+/**
+ * Blast radii.
+ *
+ * Lethal out to the inner radius, falling to nothing at the outer. Two radii
+ * rather than one because a single hard edge makes a grenade feel like a
+ * coin-flip: either you were inside the circle or you were not.
+ */
+export const GRENADE_LETHAL_RADIUS_M = 4;
+export const GRENADE_BLAST_RADIUS_M = 11;
+export const GRENADE_MAX_DAMAGE = 150;
+
+/**
+ * How much of the blast a wall stops.
+ *
+ * Not all of it: a grenade round the corner still rattles you. But cover is
+ * the answer to a grenade, and if it were not, the deployables and the
+ * buildings would stop meaning anything.
+ */
+export const GRENADE_COVER_DAMAGE_FRACTION = 0.15;
+
+/** Suppression a near miss applies, on the same 0..1 scale as gunfire. */
+export const GRENADE_SUPPRESSION = 0.9;
+
+/** Ammo points a resupply spends to replace one grenade. */
+export const GRENADE_RESUPPLY_COST = 15;
+
 export const PLAYER_SPEED_MPS = 4.5;
 export const PLAYER_SPEED_M_PER_TICK = PLAYER_SPEED_MPS / TICK_RATE_HZ;
 

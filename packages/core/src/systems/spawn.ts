@@ -13,6 +13,7 @@ import {
   DRAG_REACH_M,
   HABITAT_SPAWN_DELAY_TICKS,
   MAIN_BASE_SPAWN_DELAY_TICKS,
+  GRENADES_PER_SOLDIER,
   PLAYER_MAX_AMMO,
   PLAYER_MAX_HEALTH,
   RALLY_SPAWN_DELAY_TICKS,
@@ -361,6 +362,7 @@ function enterWorld(
   player.status = "alive";
   player.health = PLAYER_MAX_HEALTH;
   player.ammo = PLAYER_MAX_AMMO;
+  player.grenades = GRENADES_PER_SOLDIER;
   player.pos = scatterAround(world, at);
   player.waypoint = null;
   player.steer = null;

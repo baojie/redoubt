@@ -6,7 +6,7 @@
  * state cloneable, hashable, snapshot-able over the wire, and replayable.
  */
 
-import type { Vec2 } from "./math.js";
+import type { Vec2, Vec3 } from "./math.js";
 import type { RngState } from "./rng.js";
 import type { CoverVolume } from "./cover.js";
 import type { DeployableType, VehicleType } from "./rules.js";
@@ -146,6 +146,9 @@ export interface Player {
    * a different weapon with no reload to test against.
    */
   infiniteAmmo: boolean;
+
+  /** Grenades in hand. Spent by throwing, replaced by resupply. */
+  grenades: number;
 
   /**
    * Consecutive ticks spent moving, which is what the run-up is built from.
@@ -349,6 +352,24 @@ export interface MapDefinition {
   vehicleSpawns: Record<TeamId, Vec2>;
 }
 
+/**
+ * A grenade in flight.
+ *
+ * Simulated as a point on a ballistic arc, integrated per tick. It carries its
+ * own team and thrower so the blast can tell friend from foe and the ticket
+ * economy can bill the right person for a death.
+ */
+export interface Grenade {
+  id: number;
+  thrower: PlayerId;
+  team: TeamId;
+  /** Position and velocity in metres and metres per second. */
+  pos: Vec3;
+  velocity: Vec3;
+  /** The tick it goes off, regardless of where it is by then. */
+  fuseAtTick: number;
+}
+
 export interface GameState {
   tick: number;
   phase: MatchPhase;
@@ -372,6 +393,8 @@ export interface GameState {
   deployables: Deployable[];
   rallyPoints: RallyPoint[];
   vehicles: Vehicle[];
+  /** Grenades in the air. They live only between the throw and the blast. */
+  grenades: Grenade[];
 
   /** Monotonic id source, so ids never collide across entity lifetimes. */
   nextEntityId: number;

@@ -407,6 +407,95 @@ describe("deploying", () => {
     expect(ordinary.lateShots).toBe(0);
   });
 
+  it("kills with a grenade, and cover is the answer to one", () => {
+    // Same discipline as the invulnerability and infinite-ammo tests: a blast
+    // that "did damage" proves nothing unless a control shows what the damage
+    // depends on. Here the control is a victim behind a wall — if that one also
+    // died, the cover test would be passing against a grenade that ignores
+    // geometry entirely.
+    const blast = (behindCover: boolean) => {
+      const h = harness();
+      const thrower = h.team(0)[0]!;
+      const victim = h.team(1)[0]!;
+      const base = h.state.teams[0].mainBase;
+
+      // A lofted throw carries about twenty metres — it is not a thing you drop
+      // at your own feet — so both cases put the target at the range the throw
+      // actually reaches. The first version stood them six metres apart and the
+      // grenade sailed clean over the victim and exploded in empty ground.
+      const THROW_REACH_M = 21;
+      const FLAT_REACH_M = 10;
+      if (behindCover) {
+        // Thrown flat so it lands *short* of the wall, with the victim just
+        // behind it. Lofted, the grenade clears the wall and goes off beside
+        // them — which is the correct behaviour and the whole reason grenades
+        // beat cover, but it means a lofted throw cannot test the shielding
+        // rule. The first version of this did exactly that and the "sheltered"
+        // victim was killed outright.
+        const wall = h.state.map.cover.find((c) => c.kind === "wall" && c.halfWidth > 10)!;
+        h.place(thrower.id, { x: wall.x, y: wall.y - wall.halfDepth - FLAT_REACH_M });
+        h.place(victim.id, { x: wall.x, y: wall.y + wall.halfDepth + 2 });
+      } else {
+        h.place(thrower.id, { x: base.x + 20, y: base.y });
+        h.place(victim.id, { x: base.x + 20 + THROW_REACH_M, y: base.y });
+      }
+
+      const before = victim.health;
+      h.tick([
+        {
+          t: "look",
+          player: thrower.id,
+          yaw: Math.atan2(victim.pos.y - thrower.pos.y, victim.pos.x - thrower.pos.x),
+          // Cancelling the throw's own loft gives a flat throw, which lands
+          // about half as far.
+          pitch: behindCover ? -rules.GRENADE_THROW_PITCH_RAD : 0,
+        },
+      ]);
+      const thrown = h.tick([{ t: "throwGrenade", player: thrower.id }]);
+      expect(firstEvent(thrown, "grenadeThrown")).toBeDefined();
+      expect(thrower.grenades).toBe(rules.GRENADES_PER_SOLDIER - 1);
+
+      // Long enough for the fuse, whatever it is set to.
+      const events = h.run(rules.GRENADE_FUSE_TICKS + 5);
+      const blastAt = firstEvent(events, "grenadeExploded");
+      expect(blastAt).toBeDefined();
+      return { victim, before, blastAt: blastAt!.at };
+    };
+
+    const open = blast(false);
+    expect(open.victim.health).toBeLessThan(open.before);
+
+    // Behind a wall: shaken, not killed.
+    const sheltered = blast(true);
+    // Assert the premise, not just the conclusion. If the grenade sailed over
+    // and landed beside the victim, this test would be quietly proving nothing
+    // about cover — so check the blast really was on the far side of the wall.
+    expect(sheltered.blastAt.y).toBeLessThan(sheltered.victim.pos.y);
+    expect(sheltered.victim.status).toBe("alive");
+    expect(sheltered.victim.suppression).toBeGreaterThan(0);
+  });
+
+  it("runs out of grenades, and gets them back on resupply", () => {
+    const h = harness();
+    const thrower = h.team(0)[0]!;
+    const base = h.state.teams[0].mainBase;
+    h.place(thrower.id, { x: base.x + 20, y: base.y });
+
+    for (let i = 0; i < rules.GRENADES_PER_SOLDIER; i++) {
+      h.tick([{ t: "throwGrenade", player: thrower.id }]);
+    }
+    expect(thrower.grenades).toBe(0);
+
+    // A fourth throw is refused rather than silently doing nothing.
+    const denied = h.tick([{ t: "throwGrenade", player: thrower.id }]);
+    expect(firstEvent(denied, "commandRejected")?.reason).toBe("noGrenades");
+
+    // Standing in the main base and pulling supply puts them back.
+    h.place(thrower.id, { x: base.x, y: base.y });
+    h.tick([{ t: "resupply", player: thrower.id }]);
+    expect(thrower.grenades).toBe(rules.GRENADES_PER_SOLDIER);
+  });
+
   it("does not stack a whole wave on one coordinate", () => {
     // The renderer hides a body within about a metre of the camera, so that a
     // teammate walking onto you does not fill the screen with the inside of

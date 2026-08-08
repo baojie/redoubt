@@ -111,6 +111,7 @@ export type Command =
    * to at startup, so it is unreachable from the wire.
    */
   | { t: "setInvulnerable"; player: PlayerId; on: boolean }
-  | { t: "setInfiniteAmmo"; player: PlayerId; on: boolean };
+  | { t: "setInfiniteAmmo"; player: PlayerId; on: boolean }
+  | { t: "throwGrenade"; player: PlayerId };
 
 export type CommandType = Command["t"];
