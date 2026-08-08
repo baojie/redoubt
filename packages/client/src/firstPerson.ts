@@ -72,10 +72,16 @@ export class FirstPersonInput {
     document.addEventListener("mousemove", (event) => {
       if (!this.locked) return;
       const scale = RADIANS_PER_PIXEL * this.sensitivity;
+      // Guarded because a single non-finite delta would poison the aim
+      // permanently, and the symptom is bizarre: movement is camera-relative,
+      // so a NaN yaw makes every steer intent fail validation at the server
+      // and the player simply stops walking while everything else looks fine.
+      const dx = Number.isFinite(event.movementX) ? event.movementX : 0;
+      const dy = Number.isFinite(event.movementY) ? event.movementY : 0;
       // Screen x grows right; rules yaw grows counter-clockwise, hence the
       // sign. Screen y grows down; looking up is positive pitch.
-      this.yaw -= event.movementX * scale;
-      this.pitch -= event.movementY * scale;
+      this.yaw -= dx * scale;
+      this.pitch -= dy * scale;
       this.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.pitch));
     });
 
@@ -86,8 +92,8 @@ export class FirstPersonInput {
 
   /** Snap to the server's aim. Used on spawn, when we have no better guess. */
   adopt(yaw: number, pitch: number): void {
-    this.yaw = yaw;
-    this.pitch = pitch;
+    if (Number.isFinite(yaw)) this.yaw = yaw;
+    if (Number.isFinite(pitch)) this.pitch = pitch;
   }
 
   /** Is the trigger held? Rate of fire is enforced by the server, not here. */

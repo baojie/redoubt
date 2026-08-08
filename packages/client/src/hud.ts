@@ -231,6 +231,26 @@ export class Hud {
       .join("\n");
   }
 
+  /**
+   * Movement telemetry.
+   *
+   * "WASD does nothing" is not answerable by looking at the world: at walking
+   * pace, with every landmark two hundred metres away, real movement and no
+   * movement look identical. Showing the keys the client thinks are held, and
+   * the speed the server says you have, separates "the input never arrived"
+   * from "you are moving and cannot tell".
+   */
+  drawMovement(heldKeys: readonly string[], speedMps: number, at: { x: number; y: number }): void {
+    const keys = heldKeys.length === 0 ? "—" : heldKeys.join(" ");
+    const stalled = heldKeys.length > 0 && speedMps < 0.1;
+    this.movement.innerHTML =
+      `keys     ${keys}\n` +
+      `<span class="${stalled ? "warn" : ""}">speed    ${speedMps.toFixed(1)} m/s</span>\n` +
+      `pos      ${Math.round(at.x)}, ${Math.round(at.y)}`;
+  }
+
+  private readonly movement = must("movement");
+
   drawNetgraph(stats: NetStats, serverTick: number): void {
     // Prediction error above a metre or so means the client and server
     // disagree about movement, which is a bug rather than a network condition.
@@ -275,7 +295,10 @@ export class Hud {
         // Held in a closure that is replaced along with the button, so a
         // stale option can never be what actually fires.
         const row = { button, option };
-        button.addEventListener("click", () => row.option.onPick());
+        button.addEventListener("click", () => {
+          button.blur();
+          row.option.onPick();
+        });
         this.deployButtons.push(row);
         this.deployOptions.append(button);
       }

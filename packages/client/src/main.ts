@@ -70,6 +70,9 @@ function defaultServerUrl(): string {
 }
 
 joinButton.addEventListener("click", () => {
+  // Hand focus back to the page. A focused button eats Space and Enter, and
+  // is one browser quirk away from eating the movement keys too.
+  joinButton.blur();
   joinButton.disabled = true;
   joinStatus.textContent = "connecting…";
   connection.connect(defaultServerUrl(), joinName.value || "player", () => {
@@ -388,6 +391,9 @@ let lastRenderTick = 0;
 let lastFrameMs = 0;
 /** Only send the aim toggle on change — it is a held state, not a stream. */
 let lastSentAiming = false;
+/** Last authoritative position, for working out how fast we are actually going. */
+let lastReportedPos: { x: number; y: number } | null = null;
+let observedSpeedMps = 0;
 
 function frame(): void {
   requestAnimationFrame(frame);
@@ -402,6 +408,17 @@ function frame(): void {
 
   const world = connection.world;
   const selfPos = predictedPosition();
+
+  // Speed measured from the server's own positions, not from what we asked
+  // for — the question this answers is "did the world move me", and only the
+  // server can say.
+  if (world.self !== null && dt > 0) {
+    if (lastReportedPos !== null) {
+      const moved = Math.hypot(world.self.x - lastReportedPos.x, world.self.y - lastReportedPos.y);
+      observedSpeedMps = observedSpeedMps * 0.7 + (moved / dt) * 0.3;
+    }
+    lastReportedPos = { x: world.self.x, y: world.self.y };
+  }
 
   // Follow the soldier, unless the whole-map view is up.
   input.camera.centre = selfPos;
@@ -438,6 +455,7 @@ function frame(): void {
     hud.drawScoreboard(world, welcome.team as TeamId, welcome.lane.name);
     hud.drawStatus(world.self, world);
     hud.drawNetgraph(connection.stats(renderTick), world.tick);
+    hud.drawMovement(input.heldMovementKeys(), observedSpeedMps, selfPos);
     hud.drawFeed(connection.feed);
     hud.setSuppression(world.self?.suppression ?? 0);
     refreshCasualtyPrompt();
@@ -462,6 +480,7 @@ function frame(): void {
   hud.drawStatus(world.self, world);
   hud.drawWeapon(world.self, world.tick);
   hud.drawNetgraph(connection.stats(renderTick), world.tick);
+  hud.drawMovement(input.heldMovementKeys(), observedSpeedMps, selfPos);
   hud.drawFeed(connection.feed);
   hud.setSuppression(0);
   hud.drawSupply(world, predictedPosition());

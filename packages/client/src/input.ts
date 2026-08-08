@@ -83,10 +83,13 @@ export class InputState {
     window.addEventListener("keydown", (event) => {
       // Never swallow browser shortcuts or typing in the join form.
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // Only text entry blocks game keys. Buttons used to block them too,
+      // which meant that if any button anywhere still held focus — the join
+      // button, a deploy option — WASD silently did nothing while every other
+      // part of the client looked healthy.
       const target = event.target as HTMLElement | null;
-      if (target !== null && (target.tagName === "INPUT" || target.tagName === "BUTTON")) {
-        return;
-      }
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (MOVEMENT_KEYS.has(event.code)) {
         this.held.add(event.code);
         event.preventDefault();
@@ -141,6 +144,11 @@ export class InputState {
     if (this.held.has("KeyA")) x -= 1;
     if (this.held.has("KeyD")) x += 1;
     return { x, y };
+  }
+
+  /** Which movement keys the client believes are down. Diagnostic. */
+  heldMovementKeys(): string[] {
+    return [...MOVEMENT_KEYS].filter((code) => this.held.has(code)).map((c) => c.slice(3));
   }
 
   /** Take and clear the queued actions for this frame. */
