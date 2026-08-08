@@ -249,7 +249,14 @@ export function updateWeapons(world: World): void {
     // Done before the reload draws from the reserve, so a soldier who was
     // already dry is re-armed by the next reload rather than having to find a
     // crate first.
-    if (player.infiniteAmmo) player.ammo = PLAYER_MAX_AMMO;
+    if (player.infiniteAmmo) {
+      player.ammo = PLAYER_MAX_AMMO;
+      // Grenades too. The switch is called "never run dry", and a playtest
+      // that runs out of the thing being tested is exactly what it exists to
+      // prevent — this was found the first time a probe threw three and then
+      // had nothing left to check the blast with.
+      player.grenades = GRENADES_PER_SOLDIER;
+    }
 
     if (player.reloadingUntilTick > 0 && state.tick >= player.reloadingUntilTick) {
       player.reloadingUntilTick = 0;

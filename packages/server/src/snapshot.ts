@@ -239,6 +239,12 @@ export class ClientView {
       deployables,
       rallies,
       vehicles,
+      // Whole list every snapshot. They live about three seconds and there are
+      // rarely more than a handful, so diffing them would cost more than it
+      // saves — and a missed grenade delta is a blast with no warning.
+      grenades: state.grenades
+        .filter((g) => inRange(g.pos))
+        .map((g) => ({ id: g.id, x: g.pos.x, y: g.pos.y, z: g.pos.z })),
       teams,
       removed: {
         players: this.prune(this.players, seenPlayers),
@@ -294,6 +300,7 @@ function selfView(player: Player): SelfView {
     suppression: quantise(player.suppression),
     aiming: player.aiming,
     dragging: player.dragging,
+    grenades: player.grenades,
     runTicks: player.runTicks,
   };
 }

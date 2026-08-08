@@ -67,6 +67,9 @@ const BROADCAST_EVENTS: ReadonlySet<GameEvent["t"]> = new Set<GameEvent["t"]>([
  * it, which is why it cannot ride the same all-or-nothing path as a flag
  * capture.
  */
+/** How far a grenade blast is worth telling a client about. */
+const BLAST_VISIBILITY_M = 400;
+
 const TRACER_VISIBILITY_M = CULL_RADIUS_M;
 
 const DEFAULT_INTERMISSION_S = 15;
@@ -311,8 +314,15 @@ export class GameServer {
 
   private broadcastEvents(events: readonly GameEvent[]): void {
     const worth = events.filter((e) => BROADCAST_EVENTS.has(e.t));
-    const shots = events.filter((e) => e.t === "shotFired");
-    if (worth.length === 0 && shots.length === 0) return;
+    // Shots and blasts are both positional: they are culled per client below
+    // rather than whitelisted, because whether you should hear one depends on
+    // where you are standing. `grenadeExploded` was missing from both lists
+    // entirely, so the client could never draw a blast — the rule fired, the
+    // event existed, and nothing downstream ever heard it.
+    const positional = events.filter(
+      (e) => e.t === "shotFired" || e.t === "grenadeExploded",
+    );
+    if (worth.length === 0 && positional.length === 0) return;
 
     const world = this.match.view;
     for (const [socket, session] of this.sessions) {
@@ -322,17 +332,22 @@ export class GameServer {
       // something this player could have seen, and sending it to everyone
       // would make gunfire the single largest thing on the wire.
       const viewer = world.player(session.playerId);
+      const near = (at: { x: number; y: number }, within: number): boolean =>
+        viewer !== undefined &&
+        Math.hypot(at.x - viewer.pos.x, at.y - viewer.pos.y) <= within;
+
       const nearby =
         viewer === undefined
           ? []
-          : shots.filter(
-              (e) =>
-                e.t === "shotFired" &&
-                (Math.hypot(e.from.x - viewer.pos.x, e.from.y - viewer.pos.y) <=
-                  TRACER_VISIBILITY_M ||
-                  Math.hypot(e.to.x - viewer.pos.x, e.to.y - viewer.pos.y) <=
-                    TRACER_VISIBILITY_M),
-            );
+          : positional.filter((e) => {
+              if (e.t === "shotFired") {
+                return near(e.from, TRACER_VISIBILITY_M) || near(e.to, TRACER_VISIBILITY_M);
+              }
+              // A blast is a bigger, louder thing than a tracer, and one you
+              // want to see from further away — it is the only warning that
+              // somebody is throwing grenades at your position.
+              return near(e.at, BLAST_VISIBILITY_M);
+            });
 
       const payload = [...worth, ...nearby];
       if (payload.length === 0) continue;
