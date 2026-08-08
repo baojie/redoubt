@@ -89,7 +89,8 @@ export function buildRifle(
 
   at(RECEIVER_WIDTH, RECEIVER_HEIGHT * 0.85, STOCK_LENGTH, 0, -0.01, STOCK_LENGTH / 2);
   at(RECEIVER_WIDTH * 0.85, GRIP_DROP, MAGAZINE_LENGTH * 0.8, 0, -GRIP_DROP / 2, 0.05);
-  // Front and rear sights, which are what the eye lines up on when aiming.
+  // Rear sight then front sight — in that order, back to front, which is also
+  // the order the eye lines them up in when aiming.
   at(RECEIVER_WIDTH * 0.5, SIGHT_RISE, 0.03, 0, RECEIVER_HEIGHT / 2 + SIGHT_RISE / 2, -0.02);
   at(
     RECEIVER_WIDTH * 0.5,
