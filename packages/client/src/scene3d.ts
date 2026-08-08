@@ -20,6 +20,7 @@ import { Terrain, createTerrain, rules, type CoverVolume, type TeamId } from "@r
 import { flashTexture, streakTexture } from "./flash.js";
 import { buildCoverSurfaces, fitBoxUvs, type Surface } from "./buildingTextures.js";
 import { SoldierModel, type SoldierRig } from "./soldierModel.js";
+import { ScopeView } from "./scopeView.js";
 import { Viewmodel } from "./viewmodel.js";
 import type { ClientWorld } from "./world.js";
 
@@ -138,6 +139,9 @@ export class Scene3D {
   readonly soldiers = new SoldierModel();
   /** The player's own weapon. Parented to the camera, so it rides the view. */
   readonly viewmodel: Viewmodel;
+  /** The magnified image inside the optic. Only drawn while aiming. */
+  private readonly scope = new ScopeView();
+  private scopeMagnification = 0;
   /** Last drawn position per player, so the walk cycle follows real motion. */
   private readonly lastSeen = new Map<number, { x: number; y: number }>();
   private readonly markers = new Map<number, THREE.Sprite>();
@@ -200,11 +204,12 @@ export class Scene3D {
    * the ease is also what sells the weight of bringing a rifle up.
    */
   setAiming(aiming: boolean, dt: number, magnification = 1): void {
-    // Magnification divides the sight picture, and only the sight picture: from
-    // the hip the field of view is whatever the naked eye gives, however far
-    // the zoom ring has been turned. Anything else would be a free telescope
-    // that costs nothing to use, which is not what an optic is.
-    const target = aiming ? ADS_FOV_DEG / magnification : HIP_FOV_DEG;
+    // Magnification no longer squeezes the main camera. It drives the scope
+    // image instead — see scopeView.ts. Zooming the whole view magnified the
+    // weapon and the ground with it and left the player no peripheral vision
+    // at all; a scope shows one magnified circle and leaves the rest alone.
+    this.scopeMagnification = aiming ? magnification : 0;
+    const target = aiming ? ADS_FOV_DEG : HIP_FOV_DEG;
     const rate = Math.min(1, dt * ADS_EASE_PER_S);
     this.camera.fov += (target - this.camera.fov) * rate;
     this.camera.updateProjectionMatrix();
@@ -329,6 +334,7 @@ export class Scene3D {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / Math.max(1, height);
     this.camera.updateProjectionMatrix();
+    this.scope.resize(width, height);
   }
 
   /**
@@ -899,6 +905,17 @@ export class Scene3D {
     this.updateTracers(dt);
     this.updateWorldFlashes(dt);
     this.renderer.render(this.scene, this.camera);
+
+    // Only worth a second pass over the scene when there is actually
+    // magnification to show. At 1x the scope would just be a smaller copy of
+    // the view already on screen.
+    if (this.scopeMagnification <= 1) return;
+    // The weapon and the hands are children of the camera, so they are in the
+    // scene the scope camera draws — without this they appear floating in the
+    // middle of the magnified image, which is not what you see down a scope.
+    this.viewmodel.setHiddenForScope(true);
+    this.scope.render(this.renderer, this.scene, this.camera, this.scopeMagnification);
+    this.viewmodel.setHiddenForScope(false);
   }
 }
 

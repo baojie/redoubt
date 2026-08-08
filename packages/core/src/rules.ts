@@ -633,8 +633,16 @@ export const SPAWN_SCATTER_RADIUS_M = 3;
  * map a player can read at 200 m, and that is a balance question, so the bound
  * lives here with the other balance numbers rather than in the renderer.
  */
-export const OPTIC_MIN_MAGNIFICATION = 1;
-export const OPTIC_MAX_MAGNIFICATION = 4;
+/**
+ * The optic's range of magnification.
+ *
+ * The minimum is 2.5, not 1: at 1x the scope shows exactly what the naked eye
+ * already sees, so aiming produced an empty circle and the magnified view only
+ * appeared after the player thought to scroll. A magnifying optic that starts
+ * at unity is a red dot sight wearing a tube.
+ */
+export const OPTIC_MIN_MAGNIFICATION = 2.5;
+export const OPTIC_MAX_MAGNIFICATION = 6;
 /** Multiplier per notch of the wheel. */
 export const OPTIC_MAGNIFICATION_STEP = 1.15;
 

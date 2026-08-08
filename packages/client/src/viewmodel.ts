@@ -134,7 +134,7 @@ const SLEEVE_COLOUR = 0x4a5340;
 const GLOVE_COLOUR = 0x24262a;
 const FOREARM_LENGTH_M = 0.26;
 const FOREARM_RADIUS_M = 0.027;
-const HAND_SIZE_M = 0.065;
+const HAND_SIZE_M = 0.072;
 
 /** How far the weapon drops out of view during a reload. */
 const RELOAD_DROP_M = 0.22;
@@ -143,6 +143,9 @@ const RELOAD_ROLL_RAD = 0.5;
 export class Viewmodel {
   private readonly root = new THREE.Group();
   private readonly rifle: THREE.Group;
+
+  /** Whether the player is holding the weapon at all, as last told. */
+  private held = false;
 
   /** 0 at the hip, 1 fully aimed. Eased, so it lags the state change. */
   private aimBlend = 0;
@@ -186,32 +189,85 @@ export class Viewmodel {
    * Two arms, gripping.
    *
    * Each forearm is aimed along the line from its hand back towards the
-   * shoulder it comes from, rather than being built out of Euler angles. The
-   * first attempt set `rotation.set(x, 0, z)` on a cylinder and the second
-   * rotation applied in the frame the first had already turned, so both arms
+   * shoulder it comes from, rather than being built out of Euler angles. An
+   * earlier version set `rotation.set(x, 0, z)` on a cylinder, the second
+   * rotation applied in the frame the first had already turned, and both arms
    * came out as logs pointing in arbitrary directions.
    *
-   * Only the near part of the forearm is drawn. A limb continued all the way to
-   * a shoulder would pass through the camera's near plane and be sliced open
-   * from the inside, and none of it would be visible anyway.
+   * Only the near part of the forearm is drawn: a limb continued to the
+   * shoulder would cross the camera's near plane and be sliced open from
+   * inside, and none of it would be visible anyway.
+   *
+   * The hand is built rather than boxed. A single cube for a fist reads as a
+   * pipe end — which is exactly how the first version looked, because the cube
+   * was also buried inside the receiver where nothing of it showed. A hand is
+   * recognisable from three things at this distance: it is wider than the arm,
+   * it has a thumb on one side, and it has knuckles across the back. So it gets
+   * all three, and it sits proud of the weapon where it can be seen.
    */
   private addHands(): void {
     const sleeve = new THREE.MeshStandardMaterial({ color: SLEEVE_COLOUR, roughness: 0.9 });
     const glove = new THREE.MeshStandardMaterial({ color: GLOVE_COLOUR, roughness: 0.75 });
     const up = new THREE.Vector3(0, 1, 0);
 
-    const arm = (hand: THREE.Vector3, shoulder: THREE.Vector3): void => {
-      const fist = new THREE.Mesh(
-        new THREE.BoxGeometry(HAND_SIZE_M, HAND_SIZE_M * 1.15, HAND_SIZE_M * 1.35),
+    const arm = (hand: THREE.Vector3, shoulder: THREE.Vector3, thumbSide: number): void => {
+      const towards = shoulder.clone().sub(hand).normalize();
+
+      // Palm: flattened, not a cube — a hand around a grip is deeper than it
+      // is wide, and the flattening is most of what stops it reading as a box.
+      const palm = new THREE.Mesh(
+        new THREE.BoxGeometry(HAND_SIZE_M * 0.82, HAND_SIZE_M * 1.05, HAND_SIZE_M * 1.5),
         glove,
       );
-      fist.position.copy(hand);
-      this.root.add(fist);
+      palm.position.copy(hand);
+      this.root.add(palm);
 
-      const towards = shoulder.clone().sub(hand).normalize();
+      // Knuckles: four small blocks across the back of the hand.
+      for (let finger = 0; finger < 4; finger++) {
+        const knuckle = new THREE.Mesh(
+          new THREE.BoxGeometry(HAND_SIZE_M * 0.86, HAND_SIZE_M * 0.24, HAND_SIZE_M * 0.3),
+          glove,
+        );
+        knuckle.position
+          .copy(hand)
+          .add(
+            new THREE.Vector3(
+              0,
+              HAND_SIZE_M * 0.5,
+              HAND_SIZE_M * (0.52 - finger * 0.34),
+            ),
+          );
+        this.root.add(knuckle);
+      }
+
+      // Thumb, laid along the weapon on the inboard side.
+      const thumb = new THREE.Mesh(
+        new THREE.BoxGeometry(HAND_SIZE_M * 0.3, HAND_SIZE_M * 0.32, HAND_SIZE_M * 0.95),
+        glove,
+      );
+      thumb.position
+        .copy(hand)
+        .add(new THREE.Vector3(thumbSide * HAND_SIZE_M * 0.5, HAND_SIZE_M * 0.24, 0));
+      this.root.add(thumb);
+
+      // Cuff, where the glove meets the sleeve. A visible seam is what tells
+      // you the two are different things rather than one continuous tube.
+      const cuff = new THREE.Mesh(
+        new THREE.CylinderGeometry(
+          FOREARM_RADIUS_M * 1.28,
+          FOREARM_RADIUS_M * 1.28,
+          0.035,
+          10,
+        ),
+        glove,
+      );
+      cuff.quaternion.setFromUnitVectors(up, towards);
+      cuff.position.copy(hand).addScaledVector(towards, HAND_SIZE_M * 0.85);
+      this.root.add(cuff);
+
       const forearm = new THREE.Mesh(
         new THREE.CylinderGeometry(
-          FOREARM_RADIUS_M * 0.82,
+          FOREARM_RADIUS_M * 0.8,
           FOREARM_RADIUS_M,
           FOREARM_LENGTH_M,
           10,
@@ -220,7 +276,7 @@ export class Viewmodel {
       );
       // The cylinder's own axis is +y; point that at the shoulder.
       forearm.quaternion.setFromUnitVectors(up, towards);
-      forearm.position.copy(hand).addScaledVector(towards, FOREARM_LENGTH_M / 2);
+      forearm.position.copy(hand).addScaledVector(towards, FOREARM_LENGTH_M / 2 + 0.03);
       this.root.add(forearm);
     };
 
@@ -230,10 +286,11 @@ export class Viewmodel {
     const rightShoulder = new THREE.Vector3(0.2, -0.34, 0.34);
     const leftShoulder = new THREE.Vector3(-0.22, -0.3, 0.3);
 
-    // Firing hand on the grip.
-    arm(new THREE.Vector3(0.045, -0.085, RIFLE_LENGTH_M * 0.05), rightShoulder);
-    // Support hand forward, under the handguard.
-    arm(new THREE.Vector3(-0.045, -0.075, -RIFLE_LENGTH_M * 0.3), leftShoulder);
+    // Firing hand on the grip, thumb inboard; support hand forward under the
+    // handguard, thumb the other way. Both are pushed clear of the receiver so
+    // the hand is actually visible rather than swallowed by the weapon.
+    arm(new THREE.Vector3(0.062, -0.088, RIFLE_LENGTH_M * 0.05), rightShoulder, -1);
+    arm(new THREE.Vector3(-0.058, -0.072, -RIFLE_LENGTH_M * 0.3), leftShoulder, 1);
   }
 
   /**
@@ -243,7 +300,21 @@ export class Viewmodel {
    * sitting in a vehicle, where the rifle is stowed and the view is a cab.
    */
   setVisible(visible: boolean): void {
+    this.held = visible;
     this.root.visible = visible;
+  }
+
+  /**
+   * Hide the weapon for the scope's render pass, without forgetting whether it
+   * was being held.
+   *
+   * Kept apart from `setVisible` deliberately: the scope pass runs inside a
+   * frame, between the caller's own visibility decision and the next one, so
+   * reusing that flag would have the weapon reappear or vanish depending on
+   * which ran last.
+   */
+  setHiddenForScope(hidden: boolean): void {
+    this.root.visible = hidden ? false : this.held;
   }
 
   /** A round has left the barrel. Called on the server's confirmation. */
