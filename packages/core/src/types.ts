@@ -235,6 +235,16 @@ export interface Vehicle {
   pos: Vec2;
   /** Standing drive order, issued by whoever is in the driver's seat. */
   waypoint: Vec2 | null;
+  /**
+   * Direct control from a human driver: throttle in [-1, 1] and steering in
+   * [-1, 1]. Held state, like a soldier's steer. Mutually exclusive with
+   * `waypoint` — the last order given wins, so a bot and a human never fight
+   * over the wheel.
+   */
+  throttle: number;
+  steering: number;
+  /** Which way the vehicle is pointing. Direct control turns it; waypoints set it. */
+  heading: number;
   /** Metres per second actually travelled last tick — gates supply transfer. */
   speedMps: number;
   health: number;
@@ -245,6 +255,9 @@ export interface Vehicle {
   destroyed: boolean;
   /** Tick a destroyed vehicle returns at main. */
   respawnAtTick: number;
+  /** Its own parking space at main, so a respawn does not stack the fleet. */
+  homeX: number;
+  homeY: number;
   /**
    * An in-progress load or unload. Supply moves at a fixed rate while the
    * driver holds the command, so a run is a session rather than an instant.

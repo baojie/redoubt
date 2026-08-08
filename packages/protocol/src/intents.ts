@@ -157,6 +157,17 @@ export function intentToCommand(player: PlayerId, intent: Intent): Command | nul
       const to = point(intent.to);
       return to === null ? null : { t: "driveTo", player, to };
     }
+    case "drive": {
+      if (!finite(intent.throttle) || !finite(intent.steering)) return null;
+      // Range is clamped by core, which is the authority on how fast a truck
+      // goes; this only rejects values that are not numbers at all.
+      return {
+        t: "drive",
+        player,
+        throttle: intent.throttle,
+        steering: intent.steering,
+      };
+    }
 
     case "loadSupply": {
       const constructionPoints = amount(intent.constructionPoints);

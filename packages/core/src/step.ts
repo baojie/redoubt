@@ -39,11 +39,13 @@ import {
 import {
   flushSupplySessions,
   isDriver,
+  tryDrive,
   tryDriveTo,
   tryEnterVehicle,
   tryExitVehicle,
   tryLoadSupply,
   tryUnloadSupply,
+  updateRepairs,
   updateVehicleRespawns,
 } from "./systems/logistics.js";
 import { updateMovement } from "./systems/movement.js";
@@ -133,6 +135,7 @@ export class Simulation {
     updateControlPoints(world);
     updateBleed(world);
     flushSupplySessions(world);
+    updateRepairs(world);
     updateVehicleRespawns(world);
     updateMatchEnd(world);
 
@@ -190,6 +193,8 @@ export class Simulation {
           const vehicle = world.vehicle(player.vehicle);
           if (vehicle !== undefined && isDriver(vehicle, player)) {
             vehicle.waypoint = null;
+            vehicle.throttle = 0;
+            vehicle.steering = 0;
           }
         }
         return;
@@ -319,6 +324,12 @@ export class Simulation {
 
       case "exitVehicle": {
         const rejection = tryExitVehicle(world, player);
+        if (rejection !== null) world.reject(player.id, command.t, rejection);
+        return;
+      }
+
+      case "drive": {
+        const rejection = tryDrive(world, player, command.throttle, command.steering);
         if (rejection !== null) world.reject(player.id, command.t, rejection);
         return;
       }

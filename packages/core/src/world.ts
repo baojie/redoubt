@@ -11,7 +11,9 @@
 import type { GameEvent } from "./events.js";
 import { Rng } from "./rng.js";
 import { createTerrain, type Terrain } from "./terrain.js";
-import { resolveCover, type CoverBox } from "./cover.js";
+import { CoverGrid, resolveCover, type CoverBox } from "./cover.js";
+import { VEHICLE_SPECS } from "./rules.js";
+import type { VehicleTarget } from "./systems/ballistics.js";
 import { TEAM_IDS } from "./state.js";
 import type {
   Deployable,
@@ -66,6 +68,9 @@ export class World {
    */
   readonly cover: readonly CoverBox[];
 
+  /** Spatial index over `cover`, so the hot paths do not scan all of it. */
+  readonly coverGrid: CoverGrid;
+
   private readonly playerIndex = emptyIndex<Player>();
   private readonly squadIndex = emptyIndex<Squad>();
   private readonly fobIndex = emptyIndex<Fob>();
@@ -84,6 +89,7 @@ export class World {
     this.cover = state.map.cover.map((volume) =>
       resolveCover(volume, this.terrain.heightAt(volume.x, volume.y)),
     );
+    this.coverGrid = new CoverGrid(this.cover, state.map.sizeM);
   }
 
   /** Persist the RNG cursor back into the state. Called at end of tick. */
@@ -122,6 +128,47 @@ export class World {
   vehicle(id: VehicleId): Vehicle | undefined {
     return refresh(this.vehicleIndex, this.state.vehicles).get(id);
   }
+
+  /**
+   * Live vehicle hulls, as boxes a round can hit.
+   *
+   * Rebuilt on demand rather than cached: vehicles move, and a stale hull is
+   * a round that hits nothing or hits thin air. Axis-aligned regardless of
+   * heading, for the same reason cover is — this runs in the hit-registration
+   * path. A truck is roughly as wide as it is long from a rifleman's point of
+   * view, and the error is smaller than the dispersion cone.
+   */
+  vehicleTargets(): VehicleTarget[] {
+    // Cached per tick. Vehicles move at most once a tick, but shots happen
+    // many times within one, and each rebuild costs a terrain sample per hull.
+    if (this.vehicleTargetsTick === this.state.tick) return this.vehicleTargetCache;
+
+    const targets: VehicleTarget[] = [];
+    for (const vehicle of this.state.vehicles) {
+      if (vehicle.destroyed) continue;
+      const spec = VEHICLE_SPECS[vehicle.type];
+      const groundZ = this.terrain.heightAt(vehicle.pos.x, vehicle.pos.y);
+      const half = Math.max(spec.halfWidthM, spec.halfLengthM * 0.6);
+      targets.push({
+        id: vehicle.id,
+        box: {
+          minX: vehicle.pos.x - half,
+          maxX: vehicle.pos.x + half,
+          minY: vehicle.pos.y - half,
+          maxY: vehicle.pos.y + half,
+          minZ: groundZ,
+          maxZ: groundZ + spec.heightM,
+          kind: "container",
+        },
+      });
+    }
+    this.vehicleTargetCache = targets;
+    this.vehicleTargetsTick = this.state.tick;
+    return targets;
+  }
+
+  private vehicleTargetCache: VehicleTarget[] = [];
+  private vehicleTargetsTick = -1;
 
   /** Reject a command, recording why. Never throws — see commands.ts. */
   reject(player: PlayerId, command: string, reason: string): void {

@@ -9,14 +9,16 @@
  */
 
 import { clampToMap, distance, stepToward } from "../math.js";
-import { pushOutOfBox } from "../cover.js";
+import { pushOutOfBox, type CoverBox } from "../cover.js";
 import {
   ADS_MOVE_SPEED_MULTIPLIER,
   BODY_RADIUS_M,
   DRAG_SPEED_MULTIPLIER,
   PLAYER_SPEED_M_PER_TICK,
   TICK_RATE_HZ,
+  VEHICLE_REVERSE_MULTIPLIER,
   VEHICLE_SPECS,
+  VEHICLE_TURN_RATE_RAD_PER_S,
 } from "../rules.js";
 import type { Vec2 } from "../math.js";
 import type { World } from "../world.js";
@@ -38,11 +40,17 @@ const VEHICLE_CLEARANCE_M = 1.6;
  * Iterated a few times because stepping out of one box can put you inside its
  * neighbour, and a building is usually several boxes.
  */
+const nearbyCover: CoverBox[] = [];
+
 function resolveCollisions(world: World, at: Vec2, radius: number): Vec2 {
   let position = at;
+  // Only the boxes whose cell we are standing in can possibly contain us.
+  const candidates = world.coverGrid.near(at.x, at.y, radius + 2, nearbyCover);
+  if (candidates.length === 0) return position;
+
   for (let pass = 0; pass < COLLISION_PASSES; pass++) {
     let moved = false;
-    for (const box of world.cover) {
+    for (const box of candidates) {
       const pushed = pushOutOfBox(position.x, position.y, box, radius);
       if (pushed.x !== position.x || pushed.y !== position.y) {
         position = pushed;
@@ -56,6 +64,9 @@ function resolveCollisions(world: World, at: Vec2, radius: number): Vec2 {
 
 const COLLISION_PASSES = 3;
 
+/** How much speed a full-lock turn costs. */
+const CORNERING_SPEED_LOSS = 0.45;
+
 /** Below this, a step counts as having made no headway at all. */
 const PROGRESS_EPSILON_M = 1e-4;
 
@@ -68,20 +79,55 @@ export function updateMovement(world: World): void {
       vehicle.speedMps = 0;
       continue;
     }
-    if (vehicle.waypoint === null || vehicle.occupants.length === 0) {
+    if (vehicle.occupants.length === 0) {
       vehicle.speedMps = 0;
       continue;
     }
-    const maxStep = VEHICLE_SPECS[vehicle.type].speedMps / TICK_RATE_HZ;
+    const spec = VEHICLE_SPECS[vehicle.type];
+    const maxStep = spec.speedMps / TICK_RATE_HZ;
+
+    let intended: Vec2;
+    if (vehicle.throttle !== 0 || vehicle.steering !== 0) {
+      // Under direct control: turn the wheel, then move along the new heading.
+      // Turning is only possible while rolling, so a stationary vehicle cannot
+      // pirouette — it has to pull forward to come round.
+      const rolling = Math.abs(vehicle.throttle);
+      vehicle.heading +=
+        vehicle.steering *
+        VEHICLE_TURN_RATE_RAD_PER_S *
+        rolling *
+        Math.sign(vehicle.throttle || 1) /
+        TICK_RATE_HZ;
+
+      // Reverse is slow, and a hard turn costs speed — otherwise a truck
+      // corners like a hovercraft.
+      const direction = vehicle.throttle >= 0 ? 1 : -VEHICLE_REVERSE_MULTIPLIER;
+      const cornering = 1 - Math.abs(vehicle.steering) * CORNERING_SPEED_LOSS;
+      const step = maxStep * rolling * direction * cornering;
+      intended = {
+        x: vehicle.pos.x + Math.cos(vehicle.heading) * step,
+        y: vehicle.pos.y + Math.sin(vehicle.heading) * step,
+      };
+    } else if (vehicle.waypoint !== null) {
+      intended = stepToward(vehicle.pos, vehicle.waypoint, maxStep);
+      vehicle.heading = Math.atan2(
+        vehicle.waypoint.y - vehicle.pos.y,
+        vehicle.waypoint.x - vehicle.pos.x,
+      );
+    } else {
+      vehicle.speedMps = 0;
+      continue;
+    }
+
     const next = resolveCollisions(
       world,
-      clampToMap(stepToward(vehicle.pos, vehicle.waypoint, maxStep), mapSize),
+      clampToMap(intended, mapSize),
       VEHICLE_CLEARANCE_M,
     );
     const travelled = distance(vehicle.pos, next);
     vehicle.pos = next;
     vehicle.speedMps = travelled * TICK_RATE_HZ;
-    if (travelled === 0) vehicle.waypoint = null;
+    if (travelled === 0 && vehicle.waypoint !== null) vehicle.waypoint = null;
   }
 
   for (const player of state.players) {

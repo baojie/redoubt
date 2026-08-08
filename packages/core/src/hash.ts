@@ -158,8 +158,10 @@ export function hashState(state: GameState): number {
     h.bool(v.waypoint !== null);
     if (v.waypoint !== null) h.pos(v.waypoint.x).pos(v.waypoint.y);
     h.scalar(v.speedMps).scalar(v.health);
+    h.scalar(v.throttle).scalar(v.steering).float(v.heading, ANGLE_QUANTUM);
     h.scalar(v.cargoConstructionPoints).scalar(v.cargoAmmoPoints);
     h.bool(v.destroyed).int(v.respawnAtTick);
+    h.pos(v.homeX).pos(v.homeY);
     for (const o of v.occupants) h.int(o);
     h.bool(v.transfer !== null);
     if (v.transfer !== null) {

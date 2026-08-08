@@ -30,6 +30,8 @@ export type ActionKey =
   | "exitVehicle"
   | "reviveNearby"
   | "dragNearby"
+  | "loadSupply"
+  | "unloadSupply"
   | "giveUp"
   | "deploy"
   | "toggleView"
@@ -44,11 +46,13 @@ const ACTION_BINDINGS: Readonly<Record<string, ActionKey>> = {
   KeyR: "placeRally",
   KeyT: "placeFob",
   KeyH: "placeHabitat",
-  KeyC: "placeAmmoCrate",
+  KeyY: "placeAmmoCrate",
   KeyG: "enterVehicle",
   KeyV: "exitVehicle",
   KeyF: "reviveNearby",
   KeyQ: "dragNearby",
+  KeyZ: "loadSupply",
+  KeyC: "unloadSupply",
   KeyX: "giveUp",
   Space: "deploy",
   KeyM: "toggleOverview",

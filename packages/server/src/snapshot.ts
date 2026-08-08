@@ -200,7 +200,10 @@ export class ClientView {
         kind: vehicle.type,
         x: quantise(vehicle.pos.x),
         y: quantise(vehicle.pos.y),
+        heading: quantise(vehicle.heading),
         occupants: vehicle.occupants.length,
+        seats: rules.VEHICLE_SPECS[vehicle.type].seats,
+        health: quantise(vehicle.health / rules.VEHICLE_SPECS[vehicle.type].maxHealth),
         cargoConstructionPoints: friendly ? Math.round(vehicle.cargoConstructionPoints) : 0,
         cargoAmmoPoints: friendly ? Math.round(vehicle.cargoAmmoPoints) : 0,
       };

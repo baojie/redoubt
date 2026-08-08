@@ -18,6 +18,7 @@ import {
   PLAYER_MAX_HEALTH,
   SQUAD_MAX_SIZE,
   START_TICKETS,
+  VEHICLE_SPAWN_SPACING_M,
   VEHICLE_SPECS,
 } from "./rules.js";
 import type {
@@ -154,12 +155,21 @@ export function createInitialState(options: MatchOptions): GameState {
     const firstSquad = squads[squads.length - squadCount];
     team.commander = firstSquad?.leader ?? null;
 
+    // Parked in a line rather than stacked on one point. Offsets run along y,
+    // which is the mirror axis, so both teams get the identical arrangement.
     const vehicleSpawn = map.vehicleSpawns[teamId];
-    for (let v = 0; v < LOGISTICS_TRUCKS_PER_TEAM; v++) {
-      vehicles.push(makeVehicle(takeId(), teamId, "logistics", vehicleSpawn));
-    }
-    for (let v = 0; v < ARMOURED_VEHICLES_PER_TEAM; v++) {
-      vehicles.push(makeVehicle(takeId(), teamId, "armoured", vehicleSpawn));
+    const fleet: Array<"logistics" | "armoured"> = [
+      ...Array<"logistics">(LOGISTICS_TRUCKS_PER_TEAM).fill("logistics"),
+      ...Array<"armoured">(ARMOURED_VEHICLES_PER_TEAM).fill("armoured"),
+    ];
+    for (let v = 0; v < fleet.length; v++) {
+      const offset = (v - (fleet.length - 1) / 2) * VEHICLE_SPAWN_SPACING_M;
+      vehicles.push(
+        makeVehicle(takeId(), teamId, fleet[v] as "logistics" | "armoured", {
+          x: vehicleSpawn.x,
+          y: vehicleSpawn.y + offset,
+        }),
+      );
     }
 
     teams[teamId] = team;
@@ -230,6 +240,10 @@ function makeVehicle(
     type,
     pos: cloneVec2(spawn),
     waypoint: null,
+    throttle: 0,
+    steering: 0,
+    // Facing the enemy at kick-off, which is the way anyone would park.
+    heading: team === 0 ? 0 : Math.PI,
     speedMps: 0,
     health: VEHICLE_SPECS[type].maxHealth,
     occupants: [],
@@ -237,6 +251,8 @@ function makeVehicle(
     cargoAmmoPoints: 0,
     destroyed: false,
     respawnAtTick: 0,
+    homeX: spawn.x,
+    homeY: spawn.y,
     transfer: null,
   };
 }

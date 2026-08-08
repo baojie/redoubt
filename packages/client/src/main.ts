@@ -167,6 +167,29 @@ function actionToIntent(action: ActionKey): Intent | null {
       const casualty = casualtyInReach();
       return casualty === null ? null : { t: "drag", target: casualty.id };
     }
+    case "loadSupply": {
+      // Fill to capacity; core clamps and moves it at the transfer rate, so
+      // "load" is a single keypress that starts a job, not a slider.
+      const spec = rules.VEHICLE_SPECS.logistics;
+      return {
+        t: "loadSupply",
+        constructionPoints: spec.maxCargoConstructionPoints,
+        ammoPoints: spec.maxCargoAmmoPoints,
+      };
+    }
+    case "unloadSupply": {
+      const fob = nearest(
+        [...world.fobs.values()].filter((f) => f.team === self.team),
+        predictedPosition(),
+      );
+      if (fob === null) return null;
+      return {
+        t: "unloadSupply",
+        fob: fob.id,
+        constructionPoints: rules.FOB_MAX_CONSTRUCTION_POINTS,
+        ammoPoints: rules.FOB_MAX_AMMO_POINTS,
+      };
+    }
     case "enterVehicle": {
       const vehicle = nearest(
         [...world.vehicles.values()].filter((v) => v.team === self.team),
@@ -232,6 +255,14 @@ function inputTick(): void {
     : firstPersonView
       ? steerFromCamera(raw, firstPerson.yaw)
       : normaliseSteer(raw);
+
+  // At the wheel: WASD is throttle and steering, not footsteps.
+  const mounted = alive && self.vehicle !== null;
+  if (firstPersonView && mounted) {
+    const raw2 = input.steerVector();
+    queuedIntents.push({ t: "drive", throttle: -raw2.y, steering: raw2.x });
+    queuedIntents.push({ t: "look", yaw: firstPerson.yaw, pitch: firstPerson.viewPitch });
+  }
 
   if (firstPersonView && onFoot) {
     // The kick is part of where the rifle is pointing, so it goes to the
@@ -384,10 +415,17 @@ function frame(): void {
 
   if (firstPersonView && scene !== null) {
     firstPerson.settle(dt);
+    hud.drawSupply(world, predictedPosition());
     scene.setAiming(world.self?.aiming ?? false, dt);
-    scene.placeCamera(selfPos, firstPerson.yaw, firstPerson.viewPitch);
+    // Sit up in the cab when mounted; a driver's eyeline is not a rifleman's.
+    const vehicle = world.self?.vehicle == null ? null : world.vehicles.get(world.self.vehicle);
+    const eyeHeight =
+      vehicle === undefined || vehicle === null
+        ? rules.EYE_HEIGHT_M
+        : rules.VEHICLE_SPECS[vehicle.kind].heightM * 0.8;
+    scene.placeCamera(selfPos, firstPerson.yaw, firstPerson.viewPitch, eyeHeight);
     scene.syncPlayers(world, renderTick, welcome.playerId, welcome.team as TeamId);
-    scene.syncStructures(world, welcome.team as TeamId);
+    scene.syncStructures(world, welcome.team as TeamId, world.self?.vehicle ?? null);
     for (const shot of connection.takeShots()) {
       scene.addTracer(shot.from, shot.to, shot.flightSeconds, shot.team === welcome.team);
       // Our own rounds kick the view. Driven by the server's confirmation of
@@ -426,6 +464,7 @@ function frame(): void {
   hud.drawNetgraph(connection.stats(renderTick), world.tick);
   hud.drawFeed(connection.feed);
   hud.setSuppression(0);
+  hud.drawSupply(world, predictedPosition());
   refreshCasualtyPrompt();
   refreshDeployScreen();
 }
@@ -443,6 +482,7 @@ declare global {
     redoubt?: {
       connection: Connection;
       scene: Scene3D | null;
+      aim: (yaw: number, pitch?: number) => void;
       report: () => Record<string, unknown>;
     };
   }
@@ -452,6 +492,17 @@ window.redoubt = {
   connection,
   get scene() {
     return scene;
+  },
+  /**
+   * Point the camera from the console.
+   *
+   * Needed because the input loop sends a steer intent every single tick,
+   * including a zero one — so anything injected out of band is overwritten
+   * within 50 ms. Movement is camera-relative, so aiming is the only way to
+   * drive the player from a script.
+   */
+  aim: (yaw: number, pitch = 0) => {
+    firstPerson.adopt(yaw, pitch);
   },
   report: () => {
     const world = connection.world;

@@ -80,8 +80,13 @@ export type Command =
   | { t: "resupply"; player: PlayerId }
   | { t: "enterVehicle"; player: PlayerId; vehicle: VehicleId }
   | { t: "exitVehicle"; player: PlayerId }
-  /** Drive the occupied vehicle toward a point. */
+  /** Drive the occupied vehicle toward a point. What a bot issues. */
   | { t: "driveTo"; player: PlayerId; to: Vec2 }
+  /**
+   * Throttle and wheel. What a human issues. Held state; supersedes any
+   * standing waypoint so the two can never fight over the vehicle.
+   */
+  | { t: "drive"; player: PlayerId; throttle: number; steering: number }
   /** Load cargo at main base. Amounts are clamped to spec and availability. */
   | {
       t: "loadSupply";

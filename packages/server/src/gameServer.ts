@@ -48,6 +48,7 @@ const BROADCAST_EVENTS: ReadonlySet<GameEvent["t"]> = new Set<GameEvent["t"]>([
   "playerRevived",
   "playerDied",
   "supplyUnloaded",
+  "vehicleDestroyed",
 ]);
 
 /**

@@ -466,6 +466,16 @@ export interface VehicleSpec {
   readonly maxCargoConstructionPoints: number;
   readonly maxCargoAmmoPoints: number;
   readonly respawnDelayS: number;
+  /** Half-extents of the box a round has to hit, and that stops it. */
+  readonly halfLengthM: number;
+  readonly halfWidthM: number;
+  readonly heightM: number;
+  /**
+   * Fraction of a rifle round's damage that gets through the hull. A truck is
+   * sheet metal; an APC is not, which is why small arms are the wrong tool for
+   * it and the anti-tank emplacement exists.
+   */
+  readonly smallArmsResistance: number;
 }
 
 export const VEHICLE_SPECS: Readonly<Record<VehicleType, VehicleSpec>> = {
@@ -477,6 +487,11 @@ export const VEHICLE_SPECS: Readonly<Record<VehicleType, VehicleSpec>> = {
     maxCargoConstructionPoints: 1200,
     maxCargoAmmoPoints: 1800,
     respawnDelayS: 5 * SECONDS_PER_MINUTE,
+    halfLengthM: 3.2,
+    halfWidthM: 1.2,
+    heightM: 2.6,
+    // Sheet metal and canvas. A squad with rifles can and should kill a truck.
+    smallArmsResistance: 0.7,
   },
   armoured: {
     speedMps: 16,
@@ -486,11 +501,37 @@ export const VEHICLE_SPECS: Readonly<Record<VehicleType, VehicleSpec>> = {
     maxCargoConstructionPoints: 0,
     maxCargoAmmoPoints: 0,
     respawnDelayS: 10 * SECONDS_PER_MINUTE,
+    halfLengthM: 3.4,
+    halfWidthM: 1.5,
+    heightM: 2.4,
+    // Rifles bounce. Killing this needs the anti-tank emplacement, which is
+    // what makes that 600 CP + 500 AP build a real decision.
+    smallArmsResistance: 0.06,
   },
 };
 
+/**
+ * Direct driving.
+ *
+ * A waypoint order is right for a bot and useless for a human. These govern
+ * the throttle-and-wheel form: how fast the vehicle turns, and how much of its
+ * top speed it keeps while turning — so a truck has to slow for a corner
+ * instead of pivoting on the spot.
+ */
+export const VEHICLE_TURN_RATE_RAD_PER_S = 1.1;
+export const VEHICLE_REVERSE_MULTIPLIER = 0.4;
+
 /** How close a soldier must be to climb into a vehicle. */
 export const VEHICLE_MOUNT_REACH_M = 5;
+
+/**
+ * Spacing between parked vehicles at a main base.
+ *
+ * They used to share one point, which was invisible until hulls became solid
+ * and rounds started hitting whichever box happened to be marginally wider.
+ * Wide enough that the hulls do not overlap and a driver can walk between them.
+ */
+export const VEHICLE_SPAWN_SPACING_M = 9;
 
 export const LOGISTICS_TRUCKS_PER_TEAM = 2;
 export const ARMOURED_VEHICLES_PER_TEAM = 1;
@@ -499,6 +540,18 @@ export const ARMOURED_VEHICLES_PER_TEAM = 1;
 export const SUPPLY_TRANSFER_POINTS_PER_SECOND = 300;
 export const SUPPLY_TRANSFER_POINTS_PER_TICK =
   SUPPLY_TRANSFER_POINTS_PER_SECOND / TICK_RATE_HZ;
+
+/**
+ * Repair station.
+ *
+ * Health per second restored to a friendly vehicle parked beside it, and the
+ * construction points that buys. Keeping armour alive is one more thing the
+ * logistics run pays for, which is the point of putting it on a FOB.
+ */
+export const REPAIR_RATE_HP_PER_S = 60;
+export const REPAIR_REACH_M = 15;
+export const REPAIR_COST_CP_PER_HP = 0.2;
+export const REPAIR_EVAL_INTERVAL_TICKS = 10;
 
 /** A vehicle must be under this speed to load or unload — PLAN §2.5. */
 export const SUPPLY_TRANSFER_MAX_SPEED_MPS = 0.1;

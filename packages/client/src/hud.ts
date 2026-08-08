@@ -78,6 +78,59 @@ export class Hud {
 
   private readonly prompt = must("prompt");
 
+  /**
+   * The logistics panel: what is in the truck, and what the nearest FOB still
+   * has room for.
+   *
+   * PLAN §2.5 calls the supply run the heartbeat of the game, and until now it
+   * was bot-only — a human in a truck had no way to see a load, let alone move
+   * one. Showing the deficit rather than just the cargo is the point: the
+   * decision is "does this FOB need what I am carrying", not "am I full".
+   */
+  drawSupply(world: ClientWorld, at: { x: number; y: number }): void {
+    const self = world.self;
+    if (self === null || self.vehicle === null) {
+      this.supply.style.display = "none";
+      return;
+    }
+    const truck = world.vehicles.get(self.vehicle);
+    if (truck === undefined || truck.kind !== "logistics") {
+      this.supply.style.display = "none";
+      return;
+    }
+
+    let nearestFob: { id: number; cp: number; ap: number; range: number } | null = null;
+    for (const fob of world.fobs.values()) {
+      if (fob.team !== self.team) continue;
+      const range = Math.hypot(fob.x - at.x, fob.y - at.y);
+      if (nearestFob !== null && range >= nearestFob.range) continue;
+      nearestFob = {
+        id: fob.id,
+        cp: rules.FOB_MAX_CONSTRUCTION_POINTS - fob.constructionPoints,
+        ap: rules.FOB_MAX_AMMO_POINTS - fob.ammoPoints,
+        range,
+      };
+    }
+
+    const lines = [
+      `CARGO   ${Math.round(truck.cargoConstructionPoints)} CP  ` +
+        `${Math.round(truck.cargoAmmoPoints)} AP`,
+    ];
+    if (nearestFob === null) {
+      lines.push("no friendly FOB — Z to load at main");
+    } else if (nearestFob.range <= rules.SUPPLY_UNLOAD_REACH_M) {
+      lines.push(`FOB needs ${nearestFob.cp} CP  ${nearestFob.ap} AP`);
+      lines.push("C  unload here");
+    } else {
+      lines.push(`nearest FOB ${Math.round(nearestFob.range)} m`);
+      lines.push("Z  load at main");
+    }
+    this.supply.textContent = lines.join("\n");
+    this.supply.style.display = "block";
+  }
+
+  private readonly supply = must("supply");
+
   drawWeapon(self: SelfView | null, tick: number): void {
     if (self === null || self.status !== "alive") {
       this.weapon.textContent = "";
@@ -112,8 +165,10 @@ export class Hud {
       "R       place rally      (SL)",
       "T       place FOB radio  (SL)",
       "H       stake habitat    (SL)",
-      "C       stake ammo crate (SL)",
+      "Y       stake ammo crate (SL)",
       "G / V   enter / exit vehicle",
+      "WASD    drive, when mounted",
+      "Z / C   load / unload supply",
       "X       give up when downed",
       "M       whole-map view",
       "wheel   zoom",

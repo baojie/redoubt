@@ -15,7 +15,7 @@ graphics at all — and the game is already playable enough to measure.
 | **M1** — layered bots and balance harness | **done** |
 | **M2** — authoritative server + 2D playable client | **done** |
 | **M3** — 3D first person, real ballistics | **done** |
-| M4 — vehicles and logistics in 3D | not started |
+| **M4** — vehicles and logistics in 3D | **playable** |
 
 ## Play it
 
@@ -114,6 +114,10 @@ the invariants that keep it that way.
 - **Casualties**: downed, revivable, and draggable to somewhere safer. A body
   on the ground is still a target: shooting it again finishes it, which is the
   rule that stops a squad reviving each other faster than anyone can kill them.
+- **Vehicles**: driven directly with throttle and wheel, destructible, and
+  solid — a truck parked across a street is cover for whoever is behind it.
+  Armour shrugs off small arms, which is what the anti-tank emplacement is
+  for. Repair stations mend them out of the FOB's construction points.
 
 The M0/M1 hit-probability stand-in is gone. Everything above it — tickets,
 FOBs, capture, logistics — was untouched by the swap, which is what building
@@ -145,8 +149,8 @@ disagree about movement, which is a bug rather than a network condition.
   fight against equal numbers. There is no mechanism by which infiltration
   could work yet. M3's suppression should change this, and the FOB-lifetime
   figures should be re-read then; today they are thin rather than wrong.
-- Vehicles exist and work, but nothing in the client renders their interior or
-  seat assignment — you can drive and haul supply, and that is all.
+- Vehicles have no interior: the one you are riding in is hidden rather than
+  modelled, and passengers cannot shoot out.
 - JSON on the wire. Fine at this scale, and the first thing to change if the
   bandwidth number starts climbing.
 

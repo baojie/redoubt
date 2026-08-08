@@ -98,6 +98,7 @@ export class Scene3D {
   private readonly lastSeen = new Map<number, { x: number; y: number }>();
   private readonly markers = new Map<number, THREE.Sprite>();
   private readonly structures = new Map<string, THREE.Object3D>();
+  private readonly hulls = new Map<number, THREE.Group>();
   private readonly tracers: Tracer[] = [];
   private readonly tracerLines: THREE.LineSegments;
   private readonly tracerGeometry = new THREE.BufferGeometry();
@@ -226,10 +227,21 @@ export class Scene3D {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Put the camera behind the player's eyes, looking where they are looking. */
-  placeCamera(pos: { x: number; y: number }, yaw: number, pitch: number): void {
+  /**
+   * Put the camera behind the player's eyes, looking where they are looking.
+   *
+   * `eyeHeightM` lets a mounted player sit higher — a truck cab is well above
+   * where the same soldier's head would be on foot, and getting that wrong
+   * makes driving feel like crawling.
+   */
+  placeCamera(
+    pos: { x: number; y: number },
+    yaw: number,
+    pitch: number,
+    eyeHeightM: number = rules.EYE_HEIGHT_M,
+  ): void {
     const groundZ = this.terrain.heightAt(pos.x, pos.y);
-    this.camera.position.copy(worldToScene(pos.x, pos.y, groundZ + rules.EYE_HEIGHT_M));
+    this.camera.position.copy(worldToScene(pos.x, pos.y, groundZ + eyeHeightM));
 
     // Yaw, then pitch about the *new* local axis, so no roll creeps in.
     this.camera.rotation.set(0, 0, 0);
@@ -402,7 +414,7 @@ export class Scene3D {
   }
 
   /** Radios, habitats and rally points as simple blocks. */
-  syncStructures(world: ClientWorld, team: TeamId): void {
+  syncStructures(world: ClientWorld, team: TeamId, ridingIn: number | null = null): void {
     const seen = new Set<string>();
 
     const place = (
@@ -440,18 +452,78 @@ export class Scene3D {
     for (const r of world.rallies.values()) {
       place(`rally:${r.id}`, r.x, r.y, 1.4, 0.8, r.live ? 0x8fd0ff : 0x6b7785);
     }
-    for (const v of world.vehicles.values()) {
-      // Deliberately smaller than it was: a 3 m cube at the vehicle spawn
-      // swallowed every teammate standing beside it, which read as "there is
-      // nobody here".
-      place(`veh:${v.id}`, v.x, v.y, 2.2, 2.2, TEAM_COLOUR[v.team]);
-    }
+
     void team;
+
+    this.syncVehicles(world, ridingIn);
 
     for (const [key, object] of this.structures) {
       if (seen.has(key)) continue;
       this.scene.remove(object);
       this.structures.delete(key);
+    }
+  }
+
+  /**
+   * Vehicles, as oriented hulls.
+   *
+   * Given their own path rather than the generic block helper because they are
+   * the only structures that move and turn — and because a truck you can tell
+   * the front of is a truck you can tell is driving at you.
+   */
+  private syncVehicles(world: ClientWorld, ridingIn: number | null): void {
+    const seen = new Set<number>();
+
+    for (const vehicle of world.vehicles.values()) {
+      seen.add(vehicle.id);
+      const spec = rules.VEHICLE_SPECS[vehicle.kind];
+
+      let hull = this.hulls.get(vehicle.id);
+      if (hull === undefined) {
+        hull = new THREE.Group();
+        const body = new THREE.Mesh(
+          new THREE.BoxGeometry(spec.halfLengthM * 2, spec.heightM * 0.7, spec.halfWidthM * 2),
+          new THREE.MeshLambertMaterial({ color: 0xffffff }),
+        );
+        body.name = "body";
+        body.position.y = spec.heightM * 0.35;
+        hull.add(body);
+
+        // A cab at one end, so the hull has a nose.
+        const cab = new THREE.Mesh(
+          new THREE.BoxGeometry(spec.halfLengthM * 0.7, spec.heightM * 0.5, spec.halfWidthM * 1.8),
+          new THREE.MeshLambertMaterial({ color: 0x3a4048 }),
+        );
+        cab.name = "cab";
+        cab.position.set(spec.halfLengthM * 0.6, spec.heightM * 0.78, 0);
+        hull.add(cab);
+
+        this.hulls.set(vehicle.id, hull);
+        this.scene.add(hull);
+      }
+
+      // The one you are sitting in is hidden, for the same reason your own
+      // body is: the camera is inside it, and all you would see is the inside
+      // of the cab. A real interior is modelling work M4 has not done.
+      hull.visible = vehicle.id !== ridingIn;
+
+      const groundZ = this.terrain.heightAt(vehicle.x, vehicle.y);
+      hull.position.copy(worldToScene(vehicle.x, vehicle.y, groundZ));
+      hull.rotation.y = sceneYaw(vehicle.heading);
+
+      const body = hull.getObjectByName("body") as THREE.Mesh | undefined;
+      if (body !== undefined) {
+        const material = body.material as THREE.MeshLambertMaterial;
+        // Darkens as it takes damage, so a truck about to die looks like one.
+        const wear = Math.max(0.25, vehicle.health);
+        material.color.setHex(TEAM_COLOUR[vehicle.team]).multiplyScalar(wear);
+      }
+    }
+
+    for (const [id, hull] of this.hulls) {
+      if (seen.has(id)) continue;
+      this.scene.remove(hull);
+      this.hulls.delete(id);
     }
   }
 

@@ -27,6 +27,7 @@ import {
   LAG_COMPENSATION_TICKS,
   MAGAZINE_ROUNDS,
   MAIN_BASE_RADIUS_M,
+  VEHICLE_SPECS,
   RECOIL_MAX_STEPS,
   RECOIL_RECOVERY_PER_S,
   RELOAD_TICKS,
@@ -43,6 +44,7 @@ import { EYE_HEIGHT_M, TORSO_HEIGHT_M } from "../terrain.js";
 import type { Player, PlayerId } from "../types.js";
 import type { World } from "../world.js";
 import { applySpread, aimWithDrop, resolveShot, type Target } from "./ballistics.js";
+import { destroyVehicle } from "./logistics.js";
 
 export type FireRejection =
   | "notAlive"
@@ -118,7 +120,15 @@ export function fire(world: World, shooter: Player, renderTick: number): FireRej
   const direction = applySpread(aim, spread, world.rng.next(), world.rng.next());
 
   const targets = rewoundTargets(world, shooter, renderTick);
-  const impact = resolveShot(terrain, origin, direction, targets, world.cover);
+  const impact = resolveShot(
+    terrain,
+    origin,
+    direction,
+    targets,
+    world.cover,
+    world.vehicleTargets(),
+    world.coverGrid,
+  );
 
   for (const id of impact.suppressed) {
     const victim = world.player(id);
@@ -146,6 +156,17 @@ export function fire(world: World, shooter: Player, renderTick: number): FireRej
         victim.health -= DAMAGE_PER_HIT;
         victim.lastHitBy = shooter.id;
       }
+    }
+  }
+
+  if (impact.hitVehicle !== null) {
+    const vehicle = world.vehicle(impact.hitVehicle);
+    if (vehicle !== undefined && !vehicle.destroyed && vehicle.team !== shooter.team) {
+      // Most of a rifle round is wasted on armour. That is what makes the
+      // anti-tank emplacement worth its 600 CP rather than a curiosity.
+      const spec = VEHICLE_SPECS[vehicle.type];
+      vehicle.health -= DAMAGE_PER_HIT * spec.smallArmsResistance;
+      if (vehicle.health <= 0) destroyVehicle(world, vehicle);
     }
   }
 
@@ -262,6 +283,11 @@ function rewoundTargets(world: World, shooter: Player, renderTick: number): Targ
     // passes through where one is lying should not carry on to the man behind.
     if (player.status === "deploying") continue;
     if (player.team === shooter.team) continue;
+    // Riding inside: the hull is between you and the round, so the vehicle
+    // takes it. Without this a rifleman kills the driver *through* the truck,
+    // because the crew stand at the vehicle's own position and bodies are
+    // tested before hulls.
+    if (player.vehicle !== null) continue;
     const at = positionAt(player, ticksBack);
     targets.push({
       id: player.id,

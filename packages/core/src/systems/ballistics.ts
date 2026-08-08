@@ -41,7 +41,10 @@ import {
   TRAJECTORY_SEGMENTS,
 } from "../rules.js";
 import { BODY_HALF_HEIGHT_M, BODY_RADIUS_M, type Terrain } from "../terrain.js";
-import { segmentHitsBox, type CoverBox } from "../cover.js";
+import { segmentHitsBox, type CoverBox, type CoverGrid } from "../cover.js";
+
+/** Scratch buffer for the per-segment cover query. Reused to avoid churn. */
+const segmentCover: CoverBox[] = [];
 import type { PlayerId } from "../types.js";
 
 /** A body a round can hit, at the position it occupied when the shot was fired. */
@@ -51,7 +54,16 @@ export interface Target {
   torso: Vec3;
 }
 
-export type ImpactKind = "body" | "ground" | "cover" | "spent";
+export type ImpactKind = "body" | "vehicle" | "ground" | "cover" | "spent";
+
+/**
+ * A vehicle a round can hit. Presented as a box because that is what it is:
+ * something big enough to shelter behind and big enough to be worth shooting.
+ */
+export interface VehicleTarget {
+  id: number;
+  box: CoverBox;
+}
 
 export interface Impact {
   kind: ImpactKind;
@@ -63,6 +75,8 @@ export interface Impact {
   flightSeconds: number;
   /** Who was hit, when `kind` is "body". */
   hit: PlayerId | null;
+  /** Which vehicle was hit, when `kind` is "vehicle". */
+  hitVehicle: number | null;
   /**
    * Everyone the round passed close enough to rattle, hit or not.
    * Computed during the same march, because it is the same geometry.
@@ -96,6 +110,8 @@ export function resolveShot(
   direction: Vec3,
   targets: readonly Target[],
   cover: readonly CoverBox[] = [],
+  vehicles: readonly VehicleTarget[] = [],
+  grid: CoverGrid | null = null,
   maxRangeM: number = BULLET_MAX_RANGE_M,
 ): Impact {
   const unit = normalise3(direction) ?? { x: 1, y: 0, z: 0 };
@@ -142,14 +158,39 @@ export function resolveShot(
     // Walls and buildings. Nearest wins, and a wall in front of a body means
     // the body is safe — which is the entire point of cover.
     let coverT: number | null = null;
-    for (const box of cover) {
+    const nearbyBoxes =
+      grid === null
+        ? cover
+        : grid.alongSegment(
+            segmentStart.x,
+            segmentStart.y,
+            segmentEnd.x,
+            segmentEnd.y,
+            segmentCover,
+          );
+    for (const box of nearbyBoxes) {
       const hit = segmentHitsBox(segmentStart, segmentEnd, box);
       if (hit === null) continue;
       if (coverT === null || hit < coverT) coverT = hit;
     }
 
-    const solidT =
-      groundT === null ? coverT : coverT === null ? groundT : Math.min(groundT, coverT);
+    // Vehicles are solid too — they stop rounds and they take them. A truck
+    // parked across a street is cover for the people behind it, which is a
+    // thing players do on purpose.
+    let vehicleT: number | null = null;
+    let vehicleHit: number | null = null;
+    for (const vehicle of vehicles) {
+      const hit = segmentHitsBox(segmentStart, segmentEnd, vehicle.box);
+      if (hit === null) continue;
+      if (vehicleT === null || hit < vehicleT) {
+        vehicleT = hit;
+        vehicleHit = vehicle.id;
+      }
+    }
+
+    let solidT = groundT;
+    if (coverT !== null && (solidT === null || coverT < solidT)) solidT = coverT;
+    if (vehicleT !== null && (solidT === null || vehicleT < solidT)) solidT = vehicleT;
 
     // Whichever came first along this segment wins.
     if (bestTarget !== null && (solidT === null || bestT <= solidT)) {
@@ -160,18 +201,21 @@ export function resolveShot(
         rangeM: travelled + segmentLength * bestT,
         flightSeconds: step * i + step * bestT,
         hit: bestTarget.id,
+        hitVehicle: null,
         suppressed,
       };
     }
     if (solidT !== null) {
       const at = lerp3(segmentStart, segmentEnd, solidT);
-      const stoppedByCover = coverT !== null && (groundT === null || coverT <= groundT);
+      const stoppedByVehicle = vehicleT !== null && vehicleT <= solidT;
+      const stoppedByCover = !stoppedByVehicle && coverT !== null && coverT <= solidT;
       return {
-        kind: stoppedByCover ? "cover" : "ground",
+        kind: stoppedByVehicle ? "vehicle" : stoppedByCover ? "cover" : "ground",
         at,
         rangeM: travelled + segmentLength * solidT,
         flightSeconds: step * i + step * solidT,
         hit: null,
+        hitVehicle: stoppedByVehicle ? vehicleHit : null,
         suppressed,
       };
     }
@@ -186,6 +230,7 @@ export function resolveShot(
     rangeM: travelled,
     flightSeconds: totalTime,
     hit: null,
+    hitVehicle: null,
     suppressed,
   };
 }

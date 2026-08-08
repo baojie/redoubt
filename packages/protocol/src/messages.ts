@@ -75,6 +75,8 @@ export type Intent =
   | { t: "enterVehicle"; vehicle: VehicleId }
   | { t: "exitVehicle" }
   | { t: "driveTo"; to: { x: number; y: number } }
+  /** Throttle and wheel, both in [-1, 1]. Held state. */
+  | { t: "drive"; throttle: number; steering: number }
   | { t: "loadSupply"; constructionPoints: number; ammoPoints: number }
   | {
       t: "unloadSupply";
@@ -208,7 +210,13 @@ export interface VehicleView {
   kind: VehicleType;
   x: number;
   y: number;
+  /** Which way it is pointing, so the renderer can orient the hull. */
+  heading: number;
   occupants: number;
+  /** Total seats, so a client can show "2/3" and know whether to offer a ride. */
+  seats: number;
+  /** 0..1. A burning truck should look like one. */
+  health: number;
   cargoConstructionPoints: number;
   cargoAmmoPoints: number;
 }

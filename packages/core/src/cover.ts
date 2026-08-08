@@ -143,6 +143,83 @@ export function pushOutOfBox(
 }
 
 /**
+ * A coarse uniform grid over the cover volumes.
+ *
+ * Cover is tested twice on the hot path: once per soldier per tick for
+ * collision, and once per trajectory segment per shot for occlusion. Scanning
+ * every volume both times is quadratic in map detail, and it showed —
+ * adding forty-odd buildings took a headless match from 236 ms to 583 ms, and
+ * that number is the project's iteration speed, not a vanity metric.
+ *
+ * A grid is the cheapest thing that fixes it: bucket the boxes once at match
+ * start, then look at only the cells a query actually touches. No trees, no
+ * rebalancing, and nothing to maintain — cover never moves.
+ */
+export class CoverGrid {
+  private readonly cells: number[][];
+  private readonly columns: number;
+  private readonly cellSizeM: number;
+  readonly boxes: readonly CoverBox[];
+
+  constructor(boxes: readonly CoverBox[], mapSizeM: number, cellSizeM = 64) {
+    this.boxes = boxes;
+    this.cellSizeM = cellSizeM;
+    this.columns = Math.max(1, Math.ceil(mapSizeM / cellSizeM));
+    this.cells = Array.from({ length: this.columns * this.columns }, () => []);
+
+    for (let index = 0; index < boxes.length; index++) {
+      const box = boxes[index];
+      if (box === undefined) continue;
+      const minCol = this.cellIndex(box.minX);
+      const maxCol = this.cellIndex(box.maxX);
+      const minRow = this.cellIndex(box.minY);
+      const maxRow = this.cellIndex(box.maxY);
+      for (let row = minRow; row <= maxRow; row++) {
+        for (let col = minCol; col <= maxCol; col++) {
+          this.cells[row * this.columns + col]?.push(index);
+        }
+      }
+    }
+  }
+
+  private cellIndex(v: number): number {
+    return Math.max(0, Math.min(this.columns - 1, Math.floor(v / this.cellSizeM)));
+  }
+
+  /** Boxes that could contain a point within `radius` of (x, y). */
+  near(x: number, y: number, radius: number, out: CoverBox[]): CoverBox[] {
+    out.length = 0;
+    const minCol = this.cellIndex(x - radius);
+    const maxCol = this.cellIndex(x + radius);
+    const minRow = this.cellIndex(y - radius);
+    const maxRow = this.cellIndex(y + radius);
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        for (const index of this.cells[row * this.columns + col] ?? []) {
+          const box = this.boxes[index];
+          if (box !== undefined && !out.includes(box)) out.push(box);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Boxes whose cells the segment from a to b passes through. */
+  alongSegment(
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    out: CoverBox[],
+  ): CoverBox[] {
+    const centreX = (ax + bx) / 2;
+    const centreY = (ay + by) / 2;
+    const radius = Math.max(Math.abs(bx - ax), Math.abs(by - ay)) / 2;
+    return this.near(centreX, centreY, radius, out);
+  }
+}
+
+/**
  * Mirror a list of volumes about the map's centre line and return both halves.
  *
  * Map fairness is a hard constraint (see maps/riverbend.ts), and the reliable

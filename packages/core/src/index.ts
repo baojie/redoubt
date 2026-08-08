@@ -41,6 +41,7 @@ export {
   type TerrainOptions,
 } from "./terrain.js";
 export {
+  CoverGrid,
   insideFootprint,
   mirrorCover,
   pushOutOfBox,

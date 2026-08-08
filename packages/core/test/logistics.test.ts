@@ -189,6 +189,205 @@ describe("unloading", () => {
   });
 });
 
+describe("losing a vehicle", () => {
+  it("protects its crew from small arms until it is wrecked", () => {
+    const h = harness();
+    const { driver, truck } = driverInTruck(h);
+    const health = driver.health;
+
+    const shooter = h.team(1)[0]!;
+    h.place(shooter.id, { x: truck.pos.x + 14, y: truck.pos.y });
+    h.run(rules.secondsToTicks(8), () => [
+      { t: "engage", player: shooter.id, target: driver.id },
+    ]);
+
+    expect(driver.health).toBe(health);
+    expect(truck.health).toBeLessThan(rules.VEHICLE_SPECS.logistics.maxHealth);
+  });
+
+  it("costs the ticket, ejects the crew and burns the cargo", () => {
+    const h = harness();
+    const { driver, truck } = driverInTruck(h);
+    loadFull(h, driver.id);
+
+    const before = h.state.teams[0].tickets;
+    truck.health = 1;
+
+    // Walk an enemy up and shoot it out.
+    const shooter = h.team(1)[0]!;
+    h.place(shooter.id, { x: truck.pos.x + 12, y: truck.pos.y });
+    const events = h.run(rules.secondsToTicks(30), () => [
+      { t: "look", player: shooter.id, yaw: Math.PI, pitch: 0 },
+      { t: "fire", player: shooter.id },
+    ]);
+
+    expect(truck.destroyed).toBe(true);
+    expect(firstEvent(events, "vehicleDestroyed")?.kind).toBe("logistics");
+    // Charged against the vehicle specifically. The raw total also moves,
+    // because the crew we just threw into the open tend not to survive — that
+    // is the rule working, not a miscount.
+    const charge = eventsOfType(events, "ticketChange").find(
+      (e) => e.reason === "vehicleLost",
+    );
+    expect(charge?.delta).toBe(-rules.VEHICLE_SPECS.logistics.ticketCost);
+    expect(h.state.teams[0].tickets).toBeLessThanOrEqual(
+      before - rules.VEHICLE_SPECS.logistics.ticketCost,
+    );
+    // Crew is out, and the load is gone with it.
+    expect(driver.vehicle).toBeNull();
+    expect(truck.occupants).toHaveLength(0);
+    expect(truck.cargoConstructionPoints).toBe(0);
+  });
+
+  it("shrugs small arms off armour far better than off a truck", () => {
+    const logistics = rules.VEHICLE_SPECS.logistics.smallArmsResistance;
+    const armoured = rules.VEHICLE_SPECS.armoured.smallArmsResistance;
+    expect(armoured).toBeLessThan(logistics / 5);
+  });
+
+  it("comes back at main after its respawn timer", () => {
+    const h = harness();
+    const truck = h.state.vehicles.find((v) => v.team === 0 && v.type === "logistics")!;
+    truck.destroyed = true;
+    truck.health = 0;
+    truck.pos = { x: 500, y: 500 };
+    truck.respawnAtTick = h.state.tick + 5;
+
+    h.run(10);
+
+    expect(truck.destroyed).toBe(false);
+    expect(truck.health).toBe(rules.VEHICLE_SPECS.logistics.maxHealth);
+    // Its own bay, not the shared spawn point — otherwise the fleet stacks.
+    expect(truck.pos).toEqual({ x: truck.homeX, y: truck.homeY });
+  });
+
+  it("stops rounds, so parking across a street is cover", () => {
+    const h = harness();
+    const truck = h.state.vehicles.find((v) => v.team === 0 && v.type === "logistics")!;
+    truck.pos = { x: OPEN_GROUND.x, y: OPEN_GROUND.y };
+
+    // Shooter and target on opposite sides of the truck, in line with it.
+    const shooter = h.team(1)[0]!;
+    const victim = h.team(0)[5]!;
+    h.place(shooter.id, { x: OPEN_GROUND.x - 20, y: OPEN_GROUND.y });
+    h.place(victim.id, { x: OPEN_GROUND.x + 20, y: OPEN_GROUND.y });
+    const health = victim.health;
+
+    // Short enough that the truck survives: once it is wrecked it stops being
+    // cover, which is itself the correct behaviour and not what this measures.
+    h.run(rules.secondsToTicks(8), () => [
+      { t: "engage", player: shooter.id, target: victim.id },
+    ]);
+
+    // The truck ate every round. It is worse for wear; the soldier is not.
+    expect(truck.destroyed).toBe(false);
+    expect(victim.health).toBe(health);
+    expect(truck.health).toBeLessThan(rules.VEHICLE_SPECS.logistics.maxHealth);
+  });
+});
+
+describe("the motor pool", () => {
+  it("parks every vehicle in its own space, so hulls do not overlap", () => {
+    const h = harness();
+    const fleet = h.state.vehicles.filter((v) => v.team === 0);
+    expect(fleet.length).toBeGreaterThan(1);
+
+    for (let i = 0; i < fleet.length; i++) {
+      for (let j = i + 1; j < fleet.length; j++) {
+        const a = fleet[i]!;
+        const b = fleet[j]!;
+        const gap = Math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y);
+        const clearance =
+          Math.max(
+            rules.VEHICLE_SPECS[a.type].halfLengthM,
+            rules.VEHICLE_SPECS[b.type].halfLengthM,
+          ) * 2;
+        expect(gap, `${a.type} and ${b.type} overlap at spawn`).toBeGreaterThan(
+          clearance * 0.9,
+        );
+      }
+    }
+  });
+
+  it("mirrors the two motor pools", () => {
+    const h = harness();
+    const blue = h.state.vehicles.filter((v) => v.team === 0);
+    const red = h.state.vehicles.filter((v) => v.team === 1);
+    expect(blue.length).toBe(red.length);
+    for (let i = 0; i < blue.length; i++) {
+      // Same arrangement, reflected: neither side has a shorter walk to a truck.
+      expect(blue[i]!.pos.y).toBeCloseTo(red[i]!.pos.y, 6);
+      expect(h.state.map.sizeM - blue[i]!.pos.x).toBeCloseTo(red[i]!.pos.x, 6);
+    }
+  });
+});
+
+describe("repair stations", () => {
+  it("mend a parked vehicle, paid for out of the FOB", () => {
+    const h = harness();
+    const team = h.team(0);
+    for (let i = 0; i < 3; i++) h.place(team[i]!.id, OPEN_GROUND);
+    h.tick([{ t: "placeFob", player: team[0]!.id }]);
+    const fob = h.state.fobs[0]!;
+    fob.constructionPoints = rules.FOB_MAX_CONSTRUCTION_POINTS;
+
+    h.tick([
+      {
+        t: "placeDeployable",
+        player: team[0]!.id,
+        fob: fob.id,
+        kind: "repairStation",
+        pos: OPEN_GROUND,
+      },
+    ]);
+    const station = h.state.deployables[0]!;
+    h.run(rules.secondsToTicks(rules.DEPLOYABLE_SPECS.repairStation.buildWorkSeconds) + 2, () => [
+      { t: "build", player: team[0]!.id, deployable: station.id },
+    ]);
+    expect(station.built).toBe(true);
+
+    const truck = h.state.vehicles.find((v) => v.team === 0 && v.type === "logistics")!;
+    truck.pos = { x: OPEN_GROUND.x + 2, y: OPEN_GROUND.y };
+    truck.health = 100;
+    const supplyBefore = fob.constructionPoints;
+
+    h.run(rules.secondsToTicks(6));
+
+    expect(truck.health).toBeGreaterThan(100);
+    // Repairs are not free — that is why the station lives on a FOB.
+    expect(fob.constructionPoints).toBeLessThan(supplyBefore);
+  });
+
+  it("will not repair the enemy's vehicles", () => {
+    const h = harness();
+    const team = h.team(0);
+    for (let i = 0; i < 3; i++) h.place(team[i]!.id, OPEN_GROUND);
+    h.tick([{ t: "placeFob", player: team[0]!.id }]);
+    const fob = h.state.fobs[0]!;
+    fob.constructionPoints = rules.FOB_MAX_CONSTRUCTION_POINTS;
+    h.tick([
+      {
+        t: "placeDeployable",
+        player: team[0]!.id,
+        fob: fob.id,
+        kind: "repairStation",
+        pos: OPEN_GROUND,
+      },
+    ]);
+    const station = h.state.deployables[0]!;
+    h.run(rules.secondsToTicks(rules.DEPLOYABLE_SPECS.repairStation.buildWorkSeconds) + 2, () => [
+      { t: "build", player: team[0]!.id, deployable: station.id },
+    ]);
+
+    const enemyTruck = h.state.vehicles.find((v) => v.team === 1)!;
+    enemyTruck.pos = { x: OPEN_GROUND.x + 2, y: OPEN_GROUND.y };
+    enemyTruck.health = 100;
+
+    h.run(rules.secondsToTicks(6));
+    expect(enemyTruck.health).toBe(100);
+  });
+});
+
 describe("driving", () => {
   it("only the driver's seat steers", () => {
     const h = harness();
@@ -216,6 +415,59 @@ describe("driving", () => {
     expect(driver.pos).toEqual(truck.pos);
   });
 
+  it("takes throttle and wheel directly, for a human at the controls", () => {
+    const h = harness();
+    const { driver, truck } = driverInTruck(h);
+    truck.pos = { x: OPEN_GROUND.x, y: OPEN_GROUND.y };
+    truck.heading = 0;
+    const start = { ...truck.pos };
+
+    h.tick([{ t: "drive", player: driver.id, throttle: 1, steering: 0 }]);
+    h.run(rules.secondsToTicks(3));
+
+    expect(truck.pos.x).toBeGreaterThan(start.x + 10);
+    expect(truck.pos.y).toBeCloseTo(start.y, 3);
+  });
+
+  it("cannot pirouette on the spot — turning needs rolling", () => {
+    const h = harness();
+    const { driver, truck } = driverInTruck(h);
+    truck.heading = 0;
+
+    h.tick([{ t: "drive", player: driver.id, throttle: 0, steering: 1 }]);
+    h.run(rules.secondsToTicks(3));
+
+    expect(truck.heading).toBeCloseTo(0, 6);
+    expect(truck.speedMps).toBe(0);
+  });
+
+  it("clamps the throttle, so a bigger number is not a faster truck", () => {
+    const h = harness();
+    const { driver, truck } = driverInTruck(h);
+    truck.pos = { x: OPEN_GROUND.x, y: OPEN_GROUND.y };
+    truck.heading = 0;
+    const start = truck.pos.x;
+
+    h.tick([{ t: "drive", player: driver.id, throttle: 50, steering: 0 }]);
+    h.run(rules.secondsToTicks(2));
+
+    // Two seconds at top speed, give or take the tick the order arrived on.
+    const travelled = truck.pos.x - start;
+    const expected = rules.VEHICLE_SPECS.logistics.speedMps * 2;
+    expect(travelled).toBeGreaterThan(expected - 1);
+    expect(travelled).toBeLessThan(expected + 1);
+  });
+
+  it("hands the wheel from a bot's waypoint to a human without a fight", () => {
+    const h = harness();
+    const { driver, truck } = driverInTruck(h);
+    h.tick([{ t: "driveTo", player: driver.id, to: { x: 400, y: 400 } }]);
+    expect(truck.waypoint).not.toBeNull();
+
+    h.tick([{ t: "drive", player: driver.id, throttle: 1, steering: 0 }]);
+    expect(truck.waypoint).toBeNull();
+  });
+
   it("halting the driver stops the truck, not just their legs", () => {
     const h = harness();
     const { driver, truck } = driverInTruck(h);
@@ -228,6 +480,7 @@ describe("driving", () => {
 
     expect(truck.waypoint).toBeNull();
     expect(truck.speedMps).toBe(0);
+    expect(truck.throttle).toBe(0);
   });
 
   it("respects seat count", () => {
