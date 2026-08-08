@@ -118,6 +118,19 @@ export interface Player {
    * lands; read when the casualty is resolved at the end of the tick.
    */
   lastHitBy: PlayerId | null;
+  /**
+   * Takes no damage. A playtest affordance, not a game mechanic.
+   *
+   * Modelled as state and set by a command like everything else, rather than
+   * poked into the world from outside: the server would otherwise be mutating
+   * authoritative state between ticks, and a match would stop being
+   * reproducible from its seed and its input sequence — CLAUDE.md invariant 5.
+   *
+   * There is deliberately no wire intent that sets this. Only the server can
+   * issue the command, and only when it was started with `--invulnerable`, so
+   * it is not something a client can ask for.
+   */
+  invulnerable: boolean;
   /** Lifetime counters, for the battle report. */
   kills: number;
   deaths: number;

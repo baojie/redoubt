@@ -318,6 +318,45 @@ describe("deploying", () => {
     expect(player.ammo).toBe(rules.PLAYER_MAX_AMMO);
   });
 
+  it("stops damage outright while invulnerable, and only while", () => {
+    // A playtest affordance, so what matters is that it is genuinely the
+    // damage that stops and nothing else: the command has to be what turns it
+    // on, and an ordinary soldier under the same fire has to still go down —
+    // otherwise the test would pass just as well against a broken rifle.
+    const underFire = (invulnerable: boolean) => {
+      const h = harness();
+      const victim = h.team(0)[0]!;
+      const shooter = h.team(1)[0]!;
+      // Out on the open ground by a main base. The middle of the map is not
+      // open — the first version of this stood both men inside a building, and
+      // every round was stopped by the wall they were standing in: `from` and
+      // `to` came back identical, and the control case looked invulnerable too.
+      const base = h.state.teams[0].mainBase;
+      h.place(victim.id, { x: base.x + 20, y: base.y });
+      h.place(shooter.id, { x: base.x + 32, y: base.y });
+      if (invulnerable) {
+        h.tick([{ t: "setInvulnerable", player: victim.id, on: true }]);
+        expect(victim.invulnerable).toBe(true);
+      }
+      h.run(rules.secondsToTicks(30), () => [
+        { t: "look", player: shooter.id, yaw: Math.PI, pitch: 0 },
+        { t: "fire", player: shooter.id },
+      ]);
+      return victim;
+    };
+
+    const protected_ = underFire(true);
+    expect(protected_.health).toBe(rules.PLAYER_MAX_HEALTH);
+    expect(protected_.status).toBe("alive");
+    expect(protected_.lastHitBy).toBeNull();
+
+    // The control: identical fire, no flag. If this one survived unhurt the
+    // test above would prove nothing at all.
+    const ordinary = underFire(false);
+    expect(ordinary.health).toBeLessThan(rules.PLAYER_MAX_HEALTH);
+    expect(ordinary.status).not.toBe("alive");
+  });
+
   it("does not stack a whole wave on one coordinate", () => {
     // The renderer hides a body within about a metre of the camera, so that a
     // teammate walking onto you does not fill the screen with the inside of

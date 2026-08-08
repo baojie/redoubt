@@ -101,6 +101,15 @@ export type Command =
       fob: FobId;
       constructionPoints: number;
       ammoPoints: number;
-    };
+    }
+  /**
+   * Make a soldier immune to damage. A playtest affordance.
+   *
+   * A command rather than a poke at the state from outside, so the match stays
+   * reproducible from its seed and its inputs. Nothing in `protocol` maps an
+   * intent onto it — only the server can issue it, and only when it was told
+   * to at startup, so it is unreachable from the wire.
+   */
+  | { t: "setInvulnerable"; player: PlayerId; on: boolean };
 
 export type CommandType = Command["t"];

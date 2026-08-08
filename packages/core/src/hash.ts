@@ -114,6 +114,9 @@ export function hashState(state: GameState): number {
     h.int(p.magazine).int(p.reloadingUntilTick);
     h.scalar(p.suppression).scalar(p.recoilSteps).scalar(p.pendingSuppression);
     h.bool(p.aiming).maybeId(p.dragging);
+    // In the hash even though only a playtest server ever sets it: it decides
+    // whether a round lands, so a desync in it is a desync in the fight.
+    h.bool(p.invulnerable);
     // Position history feeds lag-compensated hit registration, so a
     // divergence in it is a divergence in who gets shot.
     h.int(p.history.length);

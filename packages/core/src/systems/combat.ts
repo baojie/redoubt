@@ -138,7 +138,11 @@ export function fire(world: World, shooter: Player, renderTick: number): FireRej
 
   if (impact.hit !== null) {
     const victim = world.player(impact.hit);
-    if (victim !== undefined && victim.team !== shooter.team) {
+    // Invulnerability is checked here and only here, because this is the only
+    // place a round takes health off a soldier. The shot still happens: the
+    // tracer flies, the suppression above still lands, and the shooter sees
+    // exactly what they would see against anyone else. Only the damage stops.
+    if (victim !== undefined && victim.team !== shooter.team && !victim.invulnerable) {
       if (victim.status === "alive") {
         // Damage lands now; going down is resolved once every command this
         // tick has run, so simultaneous exchanges are genuinely simultaneous.

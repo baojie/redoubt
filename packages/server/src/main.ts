@@ -15,6 +15,7 @@ interface Args {
   seed: number;
   playersPerTeam?: number;
   laneName?: string;
+  invulnerableHumans?: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -41,6 +42,10 @@ function parseArgs(argv: readonly string[]): Args {
         args.laneName = value;
         i++;
         break;
+      // Playtest only. Takes no value, so it does not consume the next argv.
+      case "--invulnerable":
+        args.invulnerableHumans = true;
+        break;
       case "--help":
       case "-h":
         process.stdout.write(
@@ -51,6 +56,7 @@ function parseArgs(argv: readonly string[]): Args {
             "  --seed <n>      match seed (default 42)",
             "  --players <n>   players per team",
             "  --lane <name>   force a RAAS lane",
+            "  --invulnerable  playtest: human-held soldiers take no damage",
             "",
           ].join("\n"),
         );

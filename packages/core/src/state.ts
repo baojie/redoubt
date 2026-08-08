@@ -142,6 +142,7 @@ export function createInitialState(options: MatchOptions): GameState {
         nextShotAtTick: 0,
         history: [],
         lastHitBy: null,
+        invulnerable: false,
         kills: 0,
         deaths: 0,
       };

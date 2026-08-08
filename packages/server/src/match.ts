@@ -27,6 +27,12 @@ export interface MatchOptions {
   seed: number;
   playersPerTeam?: number;
   laneName?: string;
+  /**
+   * Make every human-held soldier immune to damage. A playtest affordance for
+   * looking at the world without dying in it — off unless asked for, and there
+   * is no way for a client to ask.
+   */
+  invulnerableHumans?: boolean;
 }
 
 /** How far behind real time the loop may fall before it stops trying to catch up. */
@@ -131,10 +137,33 @@ export class Match {
     // Human commands go in first. Where both a human and a bot could touch the
     // same shared object in one tick the human's intent is the one that lands,
     // and ordering is fixed so a replay of the same inputs reproduces exactly.
-    const commands = this.pending.concat(botCommands);
+    const commands = this.invulnerabilityCommands().concat(this.pending, botCommands);
     this.pending = [];
 
     return this.sim.step(commands);
+  }
+
+  /**
+   * Bring newly-claimed humans up to date with the playtest flag.
+   *
+   * Issued as commands into the ordinary stream rather than written onto the
+   * players directly: state mutated between ticks would not appear in the input
+   * sequence, and the match would stop being reproducible from its seed —
+   * CLAUDE.md invariant 5.
+   *
+   * Re-checked every tick because the set of humans changes as people join,
+   * leave and are re-slotted across a restart. Only players whose flag is
+   * actually stale produce a command, so the steady state costs nothing.
+   */
+  private invulnerabilityCommands(): Command[] {
+    if (this.options.invulnerableHumans !== true) return [];
+    const commands: Command[] = [];
+    for (const id of this.humans) {
+      const player = this.world.player(id);
+      if (player === undefined || player.invulnerable) continue;
+      commands.push({ t: "setInvulnerable", player: id, on: true });
+    }
+    return commands;
   }
 
   /**

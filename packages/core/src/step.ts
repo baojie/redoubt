@@ -362,6 +362,14 @@ export class Simulation {
         if (rejection !== null) world.reject(player.id, command.t, rejection);
         return;
       }
+
+      case "setInvulnerable": {
+        // No conditions to check and nothing to reject: the command cannot
+        // reach here from a client at all, so there is no untrusted caller to
+        // validate against.
+        player.invulnerable = command.on;
+        return;
+      }
     }
   }
 }

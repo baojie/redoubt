@@ -27,6 +27,12 @@ export interface GameServerOptions {
   laneName?: string;
   /** Seconds to wait after a match ends before starting the next one. */
   intermissionSeconds?: number;
+  /**
+   * Playtest: human-held soldiers take no damage. Off unless the process was
+   * started with `--invulnerable`, and deliberately not reachable from the
+   * wire — a client cannot turn this on for itself.
+   */
+  invulnerableHumans?: boolean;
 }
 
 /** Events worth pushing to clients. The rest are telemetry and stay server-side. */
@@ -121,6 +127,7 @@ export class GameServer {
       seed: options.seed,
       playersPerTeam: options.playersPerTeam,
       laneName: options.laneName,
+      invulnerableHumans: options.invulnerableHumans,
     });
   }
 
@@ -145,7 +152,11 @@ export class GameServer {
     process.stdout.write(
       `redoubt server listening on :${this.options.port}  ` +
         `seed=${this.options.seed} lane=${this.match.state.lane.name} ` +
-        `tick=${rules.TICK_RATE_HZ}Hz\n`,
+        `tick=${rules.TICK_RATE_HZ}Hz` +
+        // Said out loud on every start. A server where the humans cannot be
+        // killed is not a server whose results mean anything, and finding that
+        // out from the gameplay is far too late.
+        `${this.options.invulnerableHumans === true ? "  PLAYTEST: humans invulnerable" : ""}\n`,
     );
   }
 
