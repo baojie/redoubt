@@ -31,6 +31,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { rules } from "@redoubt/core";
+import { buildRifle } from "./rifle.js";
 
 const MODEL_URL = "/models/Soldier.glb";
 
@@ -91,6 +92,21 @@ const RUN_ABOVE_MPS = 3.6;
 
 /** How long the gait cross-fade takes. */
 const GAIT_FADE_S = 0.15;
+
+/**
+ * The rifle in a soldier's hands.
+ *
+ * The model ships without a weapon — 85 nodes including a full finger rig, and
+ * nothing to hold. Its animations are named `Idle_Gun` and `Run` and pose the
+ * hands around a weapon that does not exist, so soldiers stood gripping thin
+ * air. It is bolted to the wrist bone rather than posed separately, which is
+ * what makes it follow every clip for free.
+ *
+ * The same `buildRifle` the player holds, in its cheap form: at the range you
+ * see other soldiers, a trigger guard is not worth the draw call.
+ */
+const SOLDIER_RIFLE_LENGTH_M = 0.72;
+const RIFLE_IN_HAND_OFFSET = { x: 0.02, y: -0.02, z: 0.06 };
 
 export interface SoldierRig {
   root: THREE.Object3D;
@@ -179,6 +195,8 @@ export class SoldierModel {
       if (names.includes(UNIFORM_MATERIAL)) tinted.push(mesh);
     });
 
+    this.addRifle(model);
+
     const root = new THREE.Group();
     root.add(model);
 
@@ -198,6 +216,53 @@ export class SoldierModel {
     }
 
     return { root, facingOffset: this.facingOffset, mixer, actions, current: null, tinted };
+  }
+
+  /**
+   * Put a rifle in the right hand.
+   *
+   * Attached to the wrist bone, so the skeleton carries it through every clip.
+   * The length is divided by the model's own scale: the bone already sits
+   * inside a model scaled to the hit cylinder, so a rifle built in metres would
+   * be scaled a second time and come out the size of a pencil.
+   */
+  private addRifle(model: THREE.Object3D): void {
+    const wrist = findNode(model, "Wrist.R");
+    if (wrist === undefined) return;
+
+    // The bone's own world scale, not the model's. This rig arrives with a
+    // hundredfold scale baked into the armature — a Blender export habit — so
+    // dividing by the model scale alone would have produced a twenty-metre
+    // rifle hanging off a soldier's wrist. Measured from the matrix, because
+    // the number is a property of the asset and not something to assume.
+    model.updateMatrixWorld(true);
+    const boneScale = new THREE.Vector3();
+    wrist.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), boneScale);
+    const inverse = 1 / Math.max(boneScale.x, 1e-6);
+
+    const material = new THREE.MeshStandardMaterial({ color: 0x24262a, roughness: 0.7 });
+    const rifle = buildRifle(SOLDIER_RIFLE_LENGTH_M * inverse, material, false);
+    rifle.position.set(
+      RIFLE_IN_HAND_OFFSET.x * inverse,
+      RIFLE_IN_HAND_OFFSET.y * inverse,
+      RIFLE_IN_HAND_OFFSET.z * inverse,
+    );
+    // Point the weapon along the body rather than along the bone.
+    //
+    // A wrist bone's local frame is whatever the rigger chose, so a rotation
+    // picked by eye is only right for the pose it was picked in. Instead the
+    // bone's world rotation is cancelled and the model's substituted, which
+    // lands the rifle along the soldier's own axes at rest and still lets the
+    // arm carry it through every clip.
+    const wristWorld = new THREE.Quaternion();
+    wrist.getWorldQuaternion(wristWorld);
+    const modelWorld = new THREE.Quaternion();
+    model.getWorldQuaternion(modelWorld);
+    rifle.quaternion.copy(wristWorld.invert().multiply(modelWorld));
+    // rifle.ts builds the weapon pointing along its own -z; this rig faces +z,
+    // so it needs turning about to point where its carrier is looking.
+    rifle.rotateY(Math.PI);
+    wrist.add(rifle);
   }
 
   /**
@@ -266,4 +331,22 @@ export class SoldierModel {
       }
     }
   }
+}
+
+/**
+ * Find a node by the name the asset uses, whatever the loader renamed it to.
+ *
+ * three.js sanitises node names on import — every bone in this rig is authored
+ * with a dot ("Wrist.R") and arrives without it ("WristR"). Looking up the
+ * authored name finds nothing, and because a missing bone is deliberately
+ * tolerated here, the failure is silent: the rifle simply never appears and the
+ * soldier stands gripping air. That is exactly what happened.
+ */
+function findNode(root: THREE.Object3D, name: string): THREE.Object3D | undefined {
+  const candidates = [name, name.replace(/\./g, ""), name.replace(/\./g, "_")];
+  for (const candidate of candidates) {
+    const found = root.getObjectByName(candidate);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
