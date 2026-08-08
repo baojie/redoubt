@@ -108,3 +108,15 @@ export function buildRifle(
 export function sightHeight(lengthM: number): number {
   return (RECEIVER_HEIGHT / 2 + SIGHT_RISE) * lengthM;
 }
+
+/**
+ * Where the muzzle is, along the weapon's own -z.
+ *
+ * Exported for the same reason `sightHeight` is: the flash and the tracer both
+ * have to come out of the end of the barrel, and the end of the barrel is a
+ * fact about the proportions above. Anyone measuring it by eye gets a flash
+ * hanging in mid-air the first time the rifle is resized.
+ */
+export function muzzleOffset(lengthM: number): number {
+  return -(RECEIVER_LENGTH + BARREL_LENGTH) * lengthM;
+}

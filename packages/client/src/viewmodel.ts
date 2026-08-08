@@ -24,7 +24,8 @@
 
 import * as THREE from "three";
 import { rules } from "@redoubt/core";
-import { buildRifle, sightHeight } from "./rifle.js";
+import { flashTexture } from "./flash.js";
+import { buildRifle, muzzleOffset, sightHeight } from "./rifle.js";
 
 /**
  * Overall rifle length, and how far out it is held.
@@ -86,6 +87,32 @@ const METRES_PER_BOB = 1.9;
 const BOB_X_M = 0.012;
 const BOB_Y_M = 0.016;
 
+/**
+ * Muzzle flash.
+ *
+ * Two parts, because a flash is two things at once. The visible flare says
+ * *you* fired; the burst of light says the world was lit by it, and that is the
+ * half people notice without being able to name — a bright quad with no light
+ * behind it reads as a decal stuck on the screen.
+ *
+ * Very short. A flash you can still see two frames later stops reading as an
+ * explosion and starts reading as a lamp.
+ */
+const FLASH_SECONDS = 0.045;
+const FLASH_RADIUS_M = 0.075;
+const FLASH_LIGHT_RANGE_M = 9;
+const FLASH_LIGHT_INTENSITY = 14;
+
+/**
+ * How much the flash varies in size from shot to shot.
+ *
+ * Identical flashes at 600 rounds a minute strobe like a fluorescent tube.
+ * Varied deterministically off a shot counter rather than Math.random: nothing
+ * here needs to be unpredictable, only uneven, and a counter is reproducible if
+ * a recording ever needs to be compared frame by frame.
+ */
+const FLASH_SIZE_VARIATION = 0.35;
+
 /** How far the weapon drops out of view during a reload. */
 const RELOAD_DROP_M = 0.22;
 const RELOAD_ROLL_RAD = 0.5;
@@ -98,6 +125,11 @@ export class Viewmodel {
   private aimBlend = 0;
   private recoilM = 0;
   private bobPhase = 0;
+  /** Seconds left on the muzzle flash, and how many shots have been fired. */
+  private flashLeft = 0;
+  private shotCount = 0;
+  private readonly flash: THREE.Sprite;
+  private readonly flashLight: THREE.PointLight;
   /** 0 to 1 through the current reload, for the dip. */
   private reloadBlend = 0;
 
@@ -107,6 +139,18 @@ export class Viewmodel {
     const material = new THREE.MeshStandardMaterial({ color: 0x3c4046, roughness: 0.6 });
     this.rifle = buildRifle(RIFLE_LENGTH_M, material, true);
     this.root.add(this.rifle);
+
+    // The flash hangs off the muzzle, which comes from the same proportions the
+    // rifle is built from rather than being measured off the drawing.
+    const muzzleZ = muzzleOffset(RIFLE_LENGTH_M);
+    this.flash = buildFlash();
+    this.flash.position.set(0, 0.01, muzzleZ);
+    this.flash.visible = false;
+    this.root.add(this.flash);
+
+    this.flashLight = new THREE.PointLight(0xffd9a0, 0, FLASH_LIGHT_RANGE_M, 2);
+    this.flashLight.position.copy(this.flash.position);
+    this.root.add(this.flashLight);
     // Drawn after the world and never culled: it is always in front of the eye,
     // and a frustum test on an object parented to the camera is wasted work.
     this.root.frustumCulled = false;
@@ -126,6 +170,27 @@ export class Viewmodel {
   /** A round has left the barrel. Called on the server's confirmation. */
   noteShot(): void {
     this.recoilM = Math.min(RECOIL_MAX_M, this.recoilM + RECOIL_PER_SHOT_M);
+    this.flashLeft = FLASH_SECONDS;
+    this.shotCount++;
+    // Spin and resize it a little each shot, so automatic fire flickers rather
+    // than strobing one identical shape at 600 rounds a minute.
+    this.flash.material.rotation = this.shotCount * 1.1;
+    const wobble = ((this.shotCount * 7) % 5) / 4;
+    const size = FLASH_RADIUS_M * 2 * (1 - FLASH_SIZE_VARIATION / 2 + wobble * FLASH_SIZE_VARIATION);
+    this.flash.scale.setScalar(size);
+  }
+
+  /**
+   * Where the muzzle is in scene space.
+   *
+   * The player's own tracer starts here rather than at `shot.from`, which is
+   * the soldier's eye — that is the right origin for everyone else's rounds,
+   * but for your own it puts the streak's start inside the camera, so the round
+   * appears to leave your forehead rather than the barrel you are looking at.
+   */
+  muzzleScenePosition(out: THREE.Vector3): THREE.Vector3 {
+    this.flash.updateWorldMatrix(true, false);
+    return this.flash.getWorldPosition(out);
   }
 
   /**
@@ -140,12 +205,24 @@ export class Viewmodel {
     movedM: number,
     reloadFraction: number,
   ): void {
-    if (!this.root.visible) return;
+    if (!this.root.visible) {
+      // A weapon that is put away has no flash left burning on it.
+      this.flashLeft = 0;
+      this.flashLight.intensity = 0;
+      return;
+    }
 
     const ease = Math.min(1, dt * ADS_EASE_PER_S);
     this.aimBlend += ((aiming ? 1 : 0) - this.aimBlend) * ease;
     this.reloadBlend += (reloadFraction - this.reloadBlend) * ease;
     this.recoilM = Math.max(0, this.recoilM - RECOIL_RECOVERY_PER_S * dt);
+
+    this.flashLeft = Math.max(0, this.flashLeft - dt);
+    const flashStrength = this.flashLeft / FLASH_SECONDS;
+    this.flash.visible = flashStrength > 0;
+    // Fades rather than vanishing: at 45 ms even one frame of pop is visible.
+    this.flash.material.opacity = flashStrength;
+    this.flashLight.intensity = flashStrength * FLASH_LIGHT_INTENSITY;
 
     this.bobPhase += movedM / METRES_PER_BOB;
     // Sway settles as the weapon comes up: a rifle held against the shoulder
@@ -187,4 +264,31 @@ export function reloadFraction(reloadingUntilTick: number, tick: number): number
   // Peaks in the middle of the reload and is back up by the end, so the weapon
   // is level again on the tick the player regains the ability to fire.
   return Math.sin(Math.min(1, remaining / total) * Math.PI);
+}
+
+/**
+ * The flare itself.
+ *
+ * A sprite, not geometry. The first version used two quads meant to cross each
+ * other, but rotating a plane about its own z spins it in place — the two were
+ * coplanar and it drew one hard-edged square. A sprite faces the camera by
+ * construction, which is what a flash should do anyway: it is a bloom of light,
+ * and light has no back.
+ *
+ * Additive and depth-write off, because a muzzle flash emits rather than
+ * receives — a lit material would go dark exactly when it matters, at night.
+ */
+function buildFlash(): THREE.Sprite {
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: flashTexture(),
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  sprite.scale.setScalar(FLASH_RADIUS_M * 2);
+  return sprite;
 }

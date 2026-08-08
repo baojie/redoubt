@@ -488,14 +488,21 @@ function frame(): void {
     scene.syncPlayers(world, renderTick, welcome.playerId, welcome.team as TeamId);
     scene.syncStructures(world, welcome.team as TeamId, world.self?.vehicle ?? null);
     for (const shot of connection.takeShots()) {
-      scene.addTracer(shot.from, shot.to, shot.flightSeconds, shot.team === welcome.team);
       // Our own rounds kick the view. Driven by the server's confirmation of
       // the shot rather than by the click, so the kick matches the rounds that
       // actually left the barrel.
       if (shot.shooter === welcome.playerId) {
         firstPerson.noteShot();
         scene.viewmodel.noteShot();
+        // From the muzzle, not from `shot.from` — that is our own eye, and a
+        // streak starting there begins inside the camera.
+        scene.addOwnTracer(shot.to, shot.flightSeconds);
+        continue;
       }
+      scene.addTracer(shot.from, shot.to, shot.flightSeconds, shot.team === welcome.team);
+      // Somebody else fired: mark where from. This is how a player finds out
+      // they are being shot at, and from which direction.
+      scene.addMuzzleFlash(shot.from);
     }
     scene.render(dt);
     hud.drawWeapon(world.self, world.tick, firstPerson.magnification);

@@ -17,6 +17,7 @@
 
 import * as THREE from "three";
 import { Terrain, createTerrain, rules, type CoverVolume, type TeamId } from "@redoubt/core";
+import { flashTexture } from "./flash.js";
 import { SoldierModel, type SoldierRig } from "./soldierModel.js";
 import { Viewmodel } from "./viewmodel.js";
 import type { ClientWorld } from "./world.js";
@@ -68,6 +69,22 @@ const MARKER_HIDE_WITHIN_M = 25;
 /** A tracer lives this long on screen after its round lands. */
 const TRACER_LINGER_S = 0.12;
 
+/**
+ * Muzzle flashes out in the world.
+ *
+ * Short and small: this is a spotting cue, not a firework. Longer and it turns
+ * into a lamp marking every shooter continuously, which would give away more
+ * than actually watching for them does.
+ */
+const WORLD_FLASH_SECONDS = 0.06;
+const WORLD_FLASH_SIZE_M = 0.55;
+const WORLD_FLASH_POOL = 48;
+
+interface WorldFlash {
+  sprite: THREE.Sprite;
+  left: number;
+}
+
 export interface Tracer {
   from: THREE.Vector3;
   to: THREE.Vector3;
@@ -117,8 +134,14 @@ export class Scene3D {
   private readonly hulls = new Map<number, THREE.Group>();
   private readonly tracers: Tracer[] = [];
   private readonly tracerLines: THREE.LineSegments;
-  private readonly tracerGeometry = new THREE.BufferGeometry();
+  private readonly enemyTracerLines: THREE.LineSegments;
+  private readonly friendlyGeometry = new THREE.BufferGeometry();
+  private readonly enemyGeometry = new THREE.BufferGeometry();
   private readonly maxTracers = 256;
+  /** Muzzle flashes out in the world, one per shot anybody else fires. */
+  private readonly flashes = new THREE.Group();
+  private readonly worldFlashes: WorldFlash[] = [];
+  private nextFlash = 0;
 
   constructor(canvas: HTMLCanvasElement, terrainSeed: number, mainBases: Array<{ x: number; y: number }>, mapSizeM: number) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -140,14 +163,17 @@ export class Scene3D {
     this.scene.add(this.buildTerrainMesh(mapSizeM));
     this.addLighting();
 
-    const positions = new Float32Array(this.maxTracers * 2 * 3);
-    this.tracerGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    this.tracerLines = new THREE.LineSegments(
-      this.tracerGeometry,
-      new THREE.LineBasicMaterial({ color: 0xffd27f, transparent: true, opacity: 0.9 }),
-    );
-    this.tracerLines.frustumCulled = false;
+    // Two sets of lines rather than one, because a tracer's most useful
+    // property is whose it is. The colour was already being decided — every
+    // shot arrives tagged friendly or not — and then thrown away into a single
+    // material, so outgoing and incoming fire looked identical. Being shot at
+    // is the single most important thing the renderer can tell a player.
+    this.tracerLines = this.buildTracerLines(this.friendlyGeometry, 0xffd27f);
+    this.enemyTracerLines = this.buildTracerLines(this.enemyGeometry, 0xff6b4a);
     this.scene.add(this.tracerLines);
+    this.scene.add(this.enemyTracerLines);
+    this.buildWorldFlashes();
+    this.scene.add(this.flashes);
   }
 
   /**
@@ -604,8 +630,10 @@ export class Scene3D {
    * nothing about range or lead.
    */
   private updateTracers(dt: number): void {
-    const position = this.tracerGeometry.attributes.position as THREE.BufferAttribute;
-    let vertex = 0;
+    const friendly = this.friendlyGeometry.attributes.position as THREE.BufferAttribute;
+    const enemy = this.enemyGeometry.attributes.position as THREE.BufferAttribute;
+    let friendlyVertex = 0;
+    let enemyVertex = 0;
 
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i]!;
@@ -619,19 +647,121 @@ export class Scene3D {
 
       const a = tracer.from.clone().lerp(tracer.to, tail);
       const b = tracer.from.clone().lerp(tracer.to, head);
-      if (vertex + 2 > this.maxTracers * 2) break;
-      position.setXYZ(vertex++, a.x, a.y, a.z);
-      position.setXYZ(vertex++, b.x, b.y, b.z);
+
+      const buffer = tracer.friendly ? friendly : enemy;
+      const vertex = tracer.friendly ? friendlyVertex : enemyVertex;
+      if (vertex + 2 > this.maxTracers * 2) continue;
+      buffer.setXYZ(vertex, a.x, a.y, a.z);
+      buffer.setXYZ(vertex + 1, b.x, b.y, b.z);
+      if (tracer.friendly) friendlyVertex += 2;
+      else enemyVertex += 2;
     }
 
     // Collapse the unused vertices onto a point so they draw nothing.
-    for (let i = vertex; i < this.maxTracers * 2; i++) position.setXYZ(i, 0, -1000, 0);
-    position.needsUpdate = true;
-    this.tracerGeometry.setDrawRange(0, this.maxTracers * 2);
+    for (let i = friendlyVertex; i < this.maxTracers * 2; i++) friendly.setXYZ(i, 0, -1000, 0);
+    for (let i = enemyVertex; i < this.maxTracers * 2; i++) enemy.setXYZ(i, 0, -1000, 0);
+    friendly.needsUpdate = true;
+    enemy.needsUpdate = true;
+    this.friendlyGeometry.setDrawRange(0, this.maxTracers * 2);
+    this.enemyGeometry.setDrawRange(0, this.maxTracers * 2);
+  }
+
+  /**
+   * Fade the muzzle flashes standing out in the world.
+   *
+   * These are how you find out where fire is coming from. Culling means you
+   * only ever see flashes from shooters the server already told you about, so
+   * this reveals nothing a player could not already have seen.
+   */
+  private updateWorldFlashes(dt: number): void {
+    for (const flash of this.worldFlashes) {
+      if (flash.left <= 0) continue;
+      flash.left -= dt;
+      const strength = Math.max(0, flash.left / WORLD_FLASH_SECONDS);
+      flash.sprite.visible = strength > 0;
+      (flash.sprite.material as THREE.SpriteMaterial).opacity = strength;
+    }
+  }
+
+  /**
+   * Mark a shot at its source.
+   *
+   * Pooled and reused round-robin: at two dozen soldiers firing there is no
+   * point allocating a sprite per round, and the oldest flash is always the one
+   * that has already faded.
+   */
+  addMuzzleFlash(at: { x: number; y: number; z: number }): void {
+    const flash = this.worldFlashes[this.nextFlash % this.worldFlashes.length];
+    if (flash === undefined) return;
+    this.nextFlash++;
+    flash.sprite.position.copy(worldToScene(at.x, at.y, at.z));
+    flash.sprite.visible = true;
+    flash.left = WORLD_FLASH_SECONDS;
+    (flash.sprite.material as THREE.SpriteMaterial).opacity = 1;
+  }
+
+  /**
+   * A tracer that leaves the player's own muzzle rather than their eye.
+   *
+   * The server reports every shot as coming from the shooter's eye, which is
+   * right for everyone else and wrong for you: your eye is the camera, so the
+   * streak would begin inside your own head while you watch a rifle that never
+   * appears to fire anything.
+   */
+  addOwnTracer(
+    to: { x: number; y: number; z: number },
+    flightSeconds: number,
+  ): void {
+    if (this.tracers.length >= this.maxTracers) this.tracers.shift();
+    this.tracers.push({
+      from: this.viewmodel.muzzleScenePosition(new THREE.Vector3()),
+      to: worldToScene(to.x, to.y, to.z),
+      age: 0,
+      flightSeconds: Math.max(flightSeconds, 1e-3),
+      friendly: true,
+    });
+  }
+
+  /** One pooled set of lines, so both sides share the draw path. */
+  private buildTracerLines(
+    geometry: THREE.BufferGeometry,
+    colour: number,
+  ): THREE.LineSegments {
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(this.maxTracers * 2 * 3), 3),
+    );
+    const lines = new THREE.LineSegments(
+      geometry,
+      new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity: 0.9 }),
+    );
+    lines.frustumCulled = false;
+    return lines;
+  }
+
+  /** Build the pool of world-space muzzle flashes. */
+  private buildWorldFlashes(): void {
+    for (let i = 0; i < WORLD_FLASH_POOL; i++) {
+      const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: flashTexture(),
+          color: 0xffc766,
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      sprite.scale.setScalar(WORLD_FLASH_SIZE_M);
+      sprite.visible = false;
+      this.flashes.add(sprite);
+      this.worldFlashes.push({ sprite, left: 0 });
+    }
   }
 
   render(dt: number): void {
     this.updateTracers(dt);
+    this.updateWorldFlashes(dt);
     this.renderer.render(this.scene, this.camera);
   }
 }

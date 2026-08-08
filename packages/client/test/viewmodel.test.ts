@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { rules } from "@redoubt/core";
-import { buildRifle, sightHeight } from "../src/rifle.js";
+import { buildRifle, muzzleOffset, sightHeight } from "../src/rifle.js";
 import { reloadFraction } from "../src/viewmodel.js";
 
 const MATERIAL = new THREE.MeshStandardMaterial();
@@ -59,6 +59,16 @@ describe("rifle geometry", () => {
     expect(simple).toBeLessThan(detailed);
     // Cheap enough for two dozen soldiers on screen at once.
     expect(simple).toBeLessThanOrEqual(3);
+  });
+
+  it("puts the muzzle at the end of the barrel", () => {
+    // The flash hangs here and the player's own tracer starts here. If the two
+    // ever drift apart, rounds appear to leave a point in mid-air — and nothing
+    // would throw, because both numbers are individually reasonable.
+    for (const length of [0.6, 1.4]) {
+      const bounds = boundsOf(buildRifle(length, MATERIAL, true));
+      expect(muzzleOffset(length)).toBeCloseTo(bounds.min.z, 6);
+    }
   });
 
   it("puts the sights above the receiver", () => {
