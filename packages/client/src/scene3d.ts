@@ -18,6 +18,7 @@
 import * as THREE from "three";
 import { Terrain, createTerrain, rules, type CoverVolume, type TeamId } from "@redoubt/core";
 import { SoldierModel, type SoldierRig } from "./soldierModel.js";
+import { Viewmodel } from "./viewmodel.js";
 import type { ClientWorld } from "./world.js";
 
 /** Metres per terrain mesh quad. Finer than the noise, coarser than a body. */
@@ -107,6 +108,8 @@ export class Scene3D {
   private readonly rigs = new Map<number, SoldierRig>();
   private readonly walkPhase = new Map<number, number>();
   readonly soldiers = new SoldierModel();
+  /** The player's own weapon. Parented to the camera, so it rides the view. */
+  readonly viewmodel: Viewmodel;
   /** Last drawn position per player, so the walk cycle follows real motion. */
   private readonly lastSeen = new Map<number, { x: number; y: number }>();
   private readonly markers = new Map<number, THREE.Sprite>();
@@ -125,6 +128,11 @@ export class Scene3D {
     this.scene.fog = new THREE.Fog(SKY, FOG_NEAR, FOG_FAR);
 
     this.camera = new THREE.PerspectiveCamera(HIP_FOV_DEG, 1, 0.1, VIEW_DISTANCE_M);
+    this.viewmodel = new Viewmodel(this.camera);
+    // The camera is not in the scene graph by default, and a child of an
+    // unattached camera never gets its world matrix updated — so the weapon
+    // would sit at the origin, a kilometre away, and never be seen.
+    this.scene.add(this.camera);
 
     // The same terrain the server is adjudicating against, rebuilt from seed.
     this.terrain = createTerrain(terrainSeed, mainBases, mapSizeM);

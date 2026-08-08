@@ -23,6 +23,7 @@ import { Connection } from "./net.js";
 import { normaliseSteer } from "./prediction.js";
 import { render } from "./render.js";
 import { Scene3D } from "./scene3d.js";
+import { reloadFraction } from "./viewmodel.js";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
@@ -398,6 +399,8 @@ let lastFrameMs = 0;
 let lastSentAiming = false;
 /** Last authoritative position, for working out how fast we are actually going. */
 let lastReportedPos: { x: number; y: number } | null = null;
+/** Previous rendered position, for the weapon's walking sway. */
+let lastViewPos: { x: number; y: number } | null = null;
 let observedSpeedMps = 0;
 
 function frame(): void {
@@ -446,6 +449,20 @@ function frame(): void {
         ? rules.EYE_HEIGHT_M
         : rules.VEHICLE_SPECS[vehicle.kind].heightM * 0.8;
     scene.placeCamera(selfPos, firstPerson.yaw, firstPerson.viewPitch, eyeHeight);
+
+    // The weapon in our own hands. Hidden when there is nobody holding it —
+    // downed, waiting to deploy, or riding in a cab with the rifle stowed.
+    const self = world.self;
+    scene.viewmodel.setVisible(self !== null && self.status === "alive" && vehicle === null);
+    const swayM =
+      lastViewPos === null ? 0 : Math.hypot(selfPos.x - lastViewPos.x, selfPos.y - lastViewPos.y);
+    lastViewPos = { x: selfPos.x, y: selfPos.y };
+    scene.viewmodel.update(
+      dt,
+      self?.aiming ?? false,
+      swayM,
+      self === null ? 0 : reloadFraction(self.reloadingUntilTick, world.tick),
+    );
     scene.syncPlayers(world, renderTick, welcome.playerId, welcome.team as TeamId);
     scene.syncStructures(world, welcome.team as TeamId, world.self?.vehicle ?? null);
     for (const shot of connection.takeShots()) {
@@ -453,7 +470,10 @@ function frame(): void {
       // Our own rounds kick the view. Driven by the server's confirmation of
       // the shot rather than by the click, so the kick matches the rounds that
       // actually left the barrel.
-      if (shot.shooter === welcome.playerId) firstPerson.noteShot();
+      if (shot.shooter === welcome.playerId) {
+        firstPerson.noteShot();
+        scene.viewmodel.noteShot();
+      }
     }
     scene.render(dt);
     hud.drawWeapon(world.self, world.tick);
