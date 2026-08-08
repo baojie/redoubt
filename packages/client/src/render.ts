@@ -18,6 +18,7 @@ import type { ClientWorld } from "./world.js";
 const COLOURS = {
   ground: "#12161b",
   grid: "#1c232b",
+  gridOverImagery: "rgba(226, 236, 245, 0.13)",
   mapEdge: "#2b3540",
   friendly: "#4da3ff",
   friendlySquad: "#8fd0ff",
@@ -50,13 +51,22 @@ export interface RenderContext {
   /** Interpolation target, in server ticks. */
   renderTick: number;
   pointer: { x: number; y: number };
+  /**
+   * The baked aerial view of the ground — see satellite.ts. Optional because
+   * it takes a moment to bake and because a canvas without a 2D context cannot
+   * produce one; either way the map still draws, just on bare dark ground.
+   */
+  ground?: HTMLCanvasElement | null;
 }
 
 export function render(rc: RenderContext): void {
   const { ctx, canvas } = rc;
+  // Off-map surround. Anything outside the playable square is nothing at all,
+  // and saying so is more use than tiling scenery no one may walk on.
   ctx.fillStyle = COLOURS.ground;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  drawGround(rc);
   drawGrid(rc);
   drawMainBases(rc);
   drawControlPoints(rc);
@@ -77,10 +87,29 @@ function metres(rc: RenderContext, m: number): number {
   return m / effectiveScale(rc.camera, rc.canvas, rc.map.sizeM);
 }
 
+/**
+ * The aerial photograph of the ground, blitted under everything else.
+ *
+ * One `drawImage` per frame: the whole map is baked once into an offscreen
+ * canvas, so the per-pixel terrain work never touches the frame budget however
+ * far the camera is zoomed in.
+ */
+function drawGround(rc: RenderContext): void {
+  if (rc.ground == null) return;
+  const topLeft = px(rc, { x: 0, y: 0 });
+  const size = metres(rc, rc.map.sizeM);
+  // Smoothing off once a raster pixel covers more than a screen pixel: past
+  // that the browser's blur is inventing detail the terrain does not have.
+  rc.ctx.imageSmoothingEnabled = size < rc.ground.width;
+  rc.ctx.drawImage(rc.ground, topLeft.x, topLeft.y, size, size);
+}
+
 function drawGrid(rc: RenderContext): void {
   const { ctx } = rc;
   const step = 100; // metres — matches the capture radius, a useful yardstick
-  ctx.strokeStyle = COLOURS.grid;
+  // Over imagery the grid has to be an overlay rather than ink: opaque lines
+  // read as fences drawn on the ground instead of as a coordinate reference.
+  ctx.strokeStyle = rc.ground == null ? COLOURS.grid : COLOURS.gridOverImagery;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let m = 0; m <= rc.map.sizeM; m += step) {

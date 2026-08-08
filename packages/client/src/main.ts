@@ -22,6 +22,7 @@ import { applyZoom, InputState, SIMPLE_ACTION_INTENTS, type ActionKey } from "./
 import { Connection } from "./net.js";
 import { normaliseSteer } from "./prediction.js";
 import { render } from "./render.js";
+import { buildSatelliteRaster } from "./satellite.js";
 import { Scene3D } from "./scene3d.js";
 import { reloadFraction } from "./viewmodel.js";
 
@@ -45,6 +46,8 @@ const firstPerson = new FirstPersonInput(scene3dCanvas);
  */
 let scene: Scene3D | null = null;
 let firstPersonView = true;
+/** The map view's aerial ground, baked once on join. See satellite.ts. */
+let satelliteGround: HTMLCanvasElement | null = null;
 
 input.attach(canvas);
 hud.drawHelp();
@@ -124,6 +127,17 @@ joinButton.addEventListener("click", () => {
         hud.note(`3D unavailable (${describeError(error)}) — using the map view`);
       }
       resize();
+    }
+    if (welcome !== null && satelliteGround === null) {
+      // A couple of hundred milliseconds of per-pixel terrain work, spent once,
+      // here. A hitch while the join screen is coming down is invisible; the
+      // same hitch on the first frame of the map view, mid-firefight, is not.
+      try {
+        satelliteGround = buildSatelliteRaster(welcome.map, welcome.terrainSeed);
+      } catch (error) {
+        // The map is perfectly usable on bare ground — it was, for all of M2.
+        hud.note(`map imagery unavailable (${describeError(error)})`);
+      }
     }
     setView(firstPersonView);
   });
@@ -528,6 +542,7 @@ function frame(): void {
     selfPos,
     renderTick,
     pointer: input.pointerWorld,
+    ground: satelliteGround,
   });
 
   hud.drawScoreboard(world, welcome.team as TeamId, welcome.lane.name);
