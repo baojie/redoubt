@@ -18,6 +18,7 @@
 import * as THREE from "three";
 import { Terrain, createTerrain, rules, type CoverVolume, type TeamId } from "@redoubt/core";
 import { flashTexture, streakTexture } from "./flash.js";
+import { buildCoverSurfaces, fitBoxUvs, type Surface } from "./buildingTextures.js";
 import { SoldierModel, type SoldierRig } from "./soldierModel.js";
 import { Viewmodel } from "./viewmodel.js";
 import type { ClientWorld } from "./world.js";
@@ -259,18 +260,54 @@ export class Scene3D {
    * blocks rounds with. Built once — none of it moves.
    */
   buildCover(cover: readonly CoverVolume[]): void {
-    const materials: Record<CoverVolume["kind"], THREE.Material> = {
-      building: new THREE.MeshLambertMaterial({ color: 0x9a9384 }),
-      wall: new THREE.MeshLambertMaterial({ color: 0x8a8578 }),
-      container: new THREE.MeshLambertMaterial({ color: 0x6f7a5c }),
+    const surfaces = buildCoverSurfaces();
+    const material = (surface: Surface): THREE.Material =>
+      new THREE.MeshStandardMaterial({
+        map: surface.map,
+        normalMap: surface.normalMap,
+        roughness: surface.roughness,
+        metalness: surface.metalness,
+      });
+
+    // One material per surface, shared by every volume. The fitting to each
+    // volume's real size happens in that volume's UVs — see `fitBoxUvs` — so
+    // forty buildings still cost four textures.
+    const walls: Record<CoverVolume["kind"], THREE.Material> = {
+      building: material(surfaces.building),
+      wall: material(surfaces.wall),
+      container: material(surfaces.container),
+    };
+    const roofs: Record<CoverVolume["kind"], THREE.Material> = {
+      // A building has a roof of its own; a wall's top is more wall, and a
+      // container's lid is the same steel as its sides.
+      building: material(surfaces.buildingRoof),
+      wall: walls.wall,
+      container: walls.container,
+    };
+    const tiles: Record<CoverVolume["kind"], number> = {
+      building: surfaces.building.tileM,
+      wall: surfaces.wall.tileM,
+      container: surfaces.container.tileM,
     };
 
     for (const volume of cover) {
       const groundZ = this.terrain.heightAt(volume.x, volume.y);
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(volume.halfWidth * 2, volume.height, volume.halfDepth * 2),
-        materials[volume.kind],
-      );
+      const width = volume.halfWidth * 2;
+      const depth = volume.halfDepth * 2;
+      const geometry = new THREE.BoxGeometry(width, volume.height, depth);
+      fitBoxUvs(geometry, width, volume.height, depth, tiles[volume.kind]);
+
+      // BoxGeometry's material slots run +x, -x, +y, -y, +z, -z. Only the +y
+      // face is the roof; -y is on the ground and never seen.
+      const skin = walls[volume.kind];
+      const mesh = new THREE.Mesh(geometry, [
+        skin,
+        skin,
+        roofs[volume.kind],
+        skin,
+        skin,
+        skin,
+      ]);
       mesh.position.copy(worldToScene(volume.x, volume.y, groundZ + volume.height / 2));
       this.scene.add(mesh);
     }
