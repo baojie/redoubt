@@ -69,3 +69,51 @@ export function flashTexture(): THREE.Texture {
   cached = texture;
   return texture;
 }
+
+let streak: THREE.Texture | null = null;
+
+/**
+ * A soft beam, bright along its spine and fading to nothing at the edges.
+ *
+ * Used for the player's own tracer, which is drawn as a quad rather than a
+ * line. WebGL ignores `linewidth` on every desktop driver, so a line is always
+ * one pixel wide however bright it is — and one pixel at two hundred metres,
+ * over sunlit ground, is not the feedback a player needs from their own fire.
+ * A quad can be as thick as it needs to be; this is what keeps its edges from
+ * looking like a ruler.
+ */
+export function streakTexture(): THREE.Texture {
+  if (streak !== null) return streak;
+
+  const width = 8;
+  const height = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (ctx === null) {
+    streak = new THREE.Texture();
+    return streak;
+  }
+
+  // Across the beam: hot core, quick falloff.
+  const across = ctx.createLinearGradient(0, 0, width, 0);
+  across.addColorStop(0, "rgba(255, 200, 120, 0)");
+  across.addColorStop(0.5, "rgba(255, 255, 240, 1)");
+  across.addColorStop(1, "rgba(255, 200, 120, 0)");
+  ctx.fillStyle = across;
+  ctx.fillRect(0, 0, width, height);
+
+  // Along the beam: fade the tail out, so the streak trails away instead of
+  // ending in a hard line, which reads as a stick rather than a round in flight.
+  const along = ctx.createLinearGradient(0, 0, 0, height);
+  along.addColorStop(0, "rgba(0, 0, 0, 1)");
+  along.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.fillStyle = along;
+  ctx.fillRect(0, 0, width, height);
+
+  streak = new THREE.CanvasTexture(canvas);
+  streak.needsUpdate = true;
+  return streak;
+}

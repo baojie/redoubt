@@ -17,7 +17,7 @@
 
 import * as THREE from "three";
 import { Terrain, createTerrain, rules, type CoverVolume, type TeamId } from "@redoubt/core";
-import { flashTexture } from "./flash.js";
+import { flashTexture, streakTexture } from "./flash.js";
 import { SoldierModel, type SoldierRig } from "./soldierModel.js";
 import { Viewmodel } from "./viewmodel.js";
 import type { ClientWorld } from "./world.js";
@@ -92,6 +92,16 @@ export interface Tracer {
   age: number;
   flightSeconds: number;
   friendly: boolean;
+  /**
+   * Fired by the player themselves.
+   *
+   * Drawn differently rather than just tagged: your own fire is the one thing
+   * on screen you need constant feedback from, and at a hundred metres a
+   * one-pixel line against bright ground is not feedback. WebGL cannot widen a
+   * line — `linewidth` is ignored on every desktop driver — so "brighter and
+   * thicker" has to come from somewhere other than the line.
+   */
+  own: boolean;
 }
 
 /** Rules-space (x east, y north, z up) to Three.js space (y up, -z north). */
@@ -137,6 +147,10 @@ export class Scene3D {
   private readonly enemyTracerLines: THREE.LineSegments;
   private readonly friendlyGeometry = new THREE.BufferGeometry();
   private readonly enemyGeometry = new THREE.BufferGeometry();
+  /** Quads, not lines: see streakTexture. Pooled like everything else here. */
+  private readonly ownStreaks: THREE.Mesh[] = [];
+  /** Glowing heads for the player's own rounds, pooled like the flashes. */
+  private readonly ownHeads: THREE.Sprite[] = [];
   private readonly maxTracers = 256;
   /** Muzzle flashes out in the world, one per shot anybody else fires. */
   private readonly flashes = new THREE.Group();
@@ -172,6 +186,8 @@ export class Scene3D {
     this.enemyTracerLines = this.buildTracerLines(this.enemyGeometry, 0xff6b4a);
     this.scene.add(this.tracerLines);
     this.scene.add(this.enemyTracerLines);
+    this.buildOwnStreaks();
+    this.buildOwnHeads();
     this.buildWorldFlashes();
     this.scene.add(this.flashes);
   }
@@ -618,6 +634,7 @@ export class Scene3D {
       age: 0,
       flightSeconds: Math.max(flightSeconds, 1e-3),
       friendly,
+      own: false,
     });
   }
 
@@ -634,6 +651,7 @@ export class Scene3D {
     const enemy = this.enemyGeometry.attributes.position as THREE.BufferAttribute;
     let friendlyVertex = 0;
     let enemyVertex = 0;
+    let heads = 0;
 
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tracer = this.tracers[i]!;
@@ -643,18 +661,44 @@ export class Scene3D {
         continue;
       }
       const head = Math.min(1, tracer.age / tracer.flightSeconds);
-      const tail = Math.max(0, head - STREAK_FRACTION);
+      const streak = tracer.own ? OWN_STREAK_FRACTION : STREAK_FRACTION;
+      const tail = Math.max(0, head - streak);
 
       const a = tracer.from.clone().lerp(tracer.to, tail);
       const b = tracer.from.clone().lerp(tracer.to, head);
 
-      const buffer = tracer.friendly ? friendly : enemy;
-      const vertex = tracer.friendly ? friendlyVertex : enemyVertex;
-      if (vertex + 2 > this.maxTracers * 2) continue;
-      buffer.setXYZ(vertex, a.x, a.y, a.z);
-      buffer.setXYZ(vertex + 1, b.x, b.y, b.z);
-      if (tracer.friendly) friendlyVertex += 2;
-      else enemyVertex += 2;
+      if (!tracer.own) {
+        const buffer = tracer.friendly ? friendly : enemy;
+        const vertex = tracer.friendly ? friendlyVertex : enemyVertex;
+        if (vertex + 2 > this.maxTracers * 2) continue;
+        buffer.setXYZ(vertex, a.x, a.y, a.z);
+        buffer.setXYZ(vertex + 1, b.x, b.y, b.z);
+        if (tracer.friendly) friendlyVertex += 2;
+        else enemyVertex += 2;
+        continue;
+      }
+
+      const quad = this.ownStreaks[heads];
+      if (quad !== undefined) {
+        orientStreak(quad, a, b, this.camera.position, OWN_STREAK_WIDTH_M);
+        quad.visible = true;
+      }
+      // The round itself, riding the head of the beam. A travelling point of
+      // light is what reads as a shot leaving the barrel; the streak behind it
+      // only says where it has been.
+      const sprite = this.ownHeads[heads];
+      if (sprite !== undefined && head < 1) {
+        sprite.position.copy(b);
+        sprite.visible = true;
+      }
+      heads++;
+    }
+
+    for (let i = heads; i < this.ownHeads.length; i++) {
+      const sprite = this.ownHeads[i];
+      if (sprite !== undefined) sprite.visible = false;
+      const quad = this.ownStreaks[i];
+      if (quad !== undefined) quad.visible = false;
     }
 
     // Collapse the unused vertices onto a point so they draw nothing.
@@ -719,13 +763,63 @@ export class Scene3D {
       age: 0,
       flightSeconds: Math.max(flightSeconds, 1e-3),
       friendly: true,
+      own: true,
     });
+  }
+
+  /**
+   * Build the pool of beams for the player's own rounds.
+   *
+   * A plane whose local +y runs along the round's path, turned edge-on to face
+   * the camera each frame. That is what lets it be thick: a line cannot be, and
+   * a sprite cannot be pointed along a direction in world space.
+   */
+  private buildOwnStreaks(): void {
+    for (let i = 0; i < OWN_HEAD_POOL; i++) {
+      const quad = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({
+          map: streakTexture(),
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.95,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      quad.visible = false;
+      quad.frustumCulled = false;
+      this.ownStreaks.push(quad);
+      this.scene.add(quad);
+    }
+  }
+
+  /** Build the pool of glowing heads for the player's own rounds. */
+  private buildOwnHeads(): void {
+    for (let i = 0; i < OWN_HEAD_POOL; i++) {
+      const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: flashTexture(),
+          color: 0xfff0c0,
+          transparent: true,
+          opacity: 1,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      sprite.scale.setScalar(OWN_HEAD_SIZE_M);
+      sprite.visible = false;
+      this.ownHeads.push(sprite);
+      this.scene.add(sprite);
+    }
   }
 
   /** One pooled set of lines, so both sides share the draw path. */
   private buildTracerLines(
     geometry: THREE.BufferGeometry,
     colour: number,
+    additive = false,
   ): THREE.LineSegments {
     geometry.setAttribute(
       "position",
@@ -733,7 +827,12 @@ export class Scene3D {
     );
     const lines = new THREE.LineSegments(
       geometry,
-      new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity: 0.9 }),
+      new THREE.LineBasicMaterial({
+        color: colour,
+        transparent: true,
+        opacity: 0.9,
+        ...(additive ? { blending: THREE.AdditiveBlending, depthWrite: false } : {}),
+      }),
     );
     lines.frustumCulled = false;
     return lines;
@@ -768,6 +867,13 @@ export class Scene3D {
 
 /** How much of its flight a tracer streak spans. */
 const STREAK_FRACTION = 0.12;
+/** The player's own rounds draw a longer streak, so they are legible in flight. */
+const OWN_STREAK_FRACTION = 0.3;
+/** The glowing round itself, drawn at the head of the player's own tracer. */
+const OWN_HEAD_SIZE_M = 0.5;
+/** How thick the player's own streak is drawn. A line would be one pixel. */
+const OWN_STREAK_WIDTH_M = 0.16;
+const OWN_HEAD_POOL = 24;
 
 /** Field of view from the hip, and down the sights. */
 const HIP_FOV_DEG = 75;
@@ -780,3 +886,41 @@ const WALK_CYCLES_PER_M = 0.55;
 const DOWN_TORSO_HEIGHT_M = 0.25;
 /** Closer than this and a body is inside the camera, not in front of it. */
 const BODY_HIDE_WITHIN_M = 1.1;
+
+/**
+ * Point a quad along a path and turn it edge-on to the camera.
+ *
+ * Local +y is laid along the round's direction of travel and the face is turned
+ * to whichever side the camera is on, so the beam keeps its thickness from
+ * every angle instead of vanishing when seen edge-on.
+ */
+function orientStreak(
+  quad: THREE.Mesh,
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  cameraPosition: THREE.Vector3,
+  widthM: number,
+): void {
+  const along = to.clone().sub(from);
+  const length = along.length();
+  if (length < 1e-6) {
+    quad.visible = false;
+    return;
+  }
+  along.divideScalar(length);
+
+  const mid = from.clone().add(to).multiplyScalar(0.5);
+  const toCamera = cameraPosition.clone().sub(mid).normalize();
+  // Degenerate when looking straight down the round's path; any perpendicular
+  // will do there, because the quad is a dot on screen either way.
+  let side = along.clone().cross(toCamera);
+  if (side.lengthSq() < 1e-8) side = new THREE.Vector3(0, 1, 0).cross(along);
+  side.normalize();
+  const facing = side.clone().cross(along).normalize();
+
+  quad.quaternion.setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(side, along, facing),
+  );
+  quad.position.copy(mid);
+  quad.scale.set(widthM, length, 1);
+}
