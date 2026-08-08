@@ -42,7 +42,10 @@ const VEHICLE_CLEARANCE_M = 1.6;
  */
 const nearbyCover: CoverBox[] = [];
 
-function resolveCollisions(world: World, at: Vec2, radius: number): Vec2 {
+// Exported because spawning needs the same treatment: a soldier scattered a
+// few metres off a spawn point has to be pushed out of whatever it landed in,
+// by exactly the rule that applies to one who walked there.
+export function resolveCollisions(world: World, at: Vec2, radius: number): Vec2 {
   let position = at;
   // Only the boxes whose cell we are standing in can possibly contain us.
   const candidates = world.coverGrid.near(at.x, at.y, radius + 2, nearbyCover);

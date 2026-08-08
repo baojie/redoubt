@@ -579,6 +579,22 @@ export const BODY_RADIUS_M = 0.35;
 /** Half-height of that cylinder, measured from the torso point. */
 export const BODY_HALF_HEIGHT_M = 0.9;
 
+/**
+ * How far from a spawn point a soldier may arrive.
+ *
+ * Soldiers do not collide with each other, so without this every player
+ * spawning from the same source arrives at the *identical* coordinate and the
+ * whole wave occupies one point. That is not just ugly: the renderer hides
+ * bodies closer than about a metre — otherwise a teammate who walks onto you
+ * fills the screen with the inside of their head — so a stacked wave is a wave
+ * you cannot see at all. Spawning at main with eleven teammates looked exactly
+ * like spawning alone on an empty map.
+ *
+ * Comfortably wider than that hide radius, and small enough that a rally still
+ * puts you where the rally is.
+ */
+export const SPAWN_SCATTER_RADIUS_M = 3;
+
 // ---------------------------------------------------------------------------
 // Map
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { rules } from "../src/index.js";
+import { distance, rules } from "../src/index.js";
 import { eventsOfType, firstEvent, harness } from "./helpers.js";
 
 /**
@@ -310,8 +310,37 @@ describe("deploying", () => {
     ]);
     expect(firstEvent(events, "playerSpawned")?.source).toBe("main");
     expect(player.status).toBe("alive");
-    expect(player.pos).toEqual(h.state.teams[0].mainBase);
+    // Near the main base, not exactly on it: a wave that all arrives at one
+    // coordinate stacks, and stacked bodies are hidden by the renderer's
+    // don't-draw-the-inside-of-a-teammate's-head rule.
+    const base = h.state.teams[0].mainBase;
+    expect(distance(player.pos, base)).toBeLessThanOrEqual(rules.SPAWN_SCATTER_RADIUS_M);
     expect(player.ammo).toBe(rules.PLAYER_MAX_AMMO);
+  });
+
+  it("does not stack a whole wave on one coordinate", () => {
+    // The renderer hides a body within about a metre of the camera, so that a
+    // teammate walking onto you does not fill the screen with the inside of
+    // their head. A wave that all arrives at the identical point is therefore a
+    // wave that is not merely ugly but invisible: spawning at main next to
+    // eleven teammates looked exactly like spawning alone.
+    const h = harness();
+    const wave = h.team(0).slice(0, 8);
+    for (const player of wave) {
+      player.status = "deploying";
+      player.deployingSinceTick = h.state.tick;
+    }
+    h.run(rules.MAIN_BASE_SPAWN_DELAY_TICKS);
+    h.tick(wave.map((p) => ({ t: "spawn" as const, player: p.id, source: { kind: "main" as const } })));
+
+    const base = h.state.teams[0].mainBase;
+    for (const player of wave) {
+      expect(player.status).toBe("alive");
+      expect(distance(player.pos, base)).toBeLessThanOrEqual(rules.SPAWN_SCATTER_RADIUS_M);
+    }
+
+    const places = new Set(wave.map((p) => `${p.pos.x},${p.pos.y}`));
+    expect(places.size).toBe(wave.length);
   });
 
   it("refuses an overrun habitat", () => {

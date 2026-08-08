@@ -19,13 +19,16 @@ import {
   REVIVE_HEALTH,
   REVIVE_REACH_M,
   REVIVE_TICKS,
+  SPAWN_SCATTER_RADIUS_M,
   TICKET_COST_COMMANDER_DEATH,
   TICKET_COST_INFANTRY_DEATH,
+  BODY_RADIUS_M,
 } from "../rules.js";
 import type { SpawnSource } from "../commands.js";
 import type { Player, PlayerId } from "../types.js";
 import type { World } from "../world.js";
 import { habitatIsLive } from "./fob.js";
+import { resolveCollisions } from "./movement.js";
 import { noteRallySpawn, rallyIsLive } from "./rally.js";
 import { adjustTickets } from "./tickets.js";
 
@@ -320,6 +323,35 @@ export function trySpawn(
   }
 }
 
+/**
+ * A spot near the spawn point rather than exactly on it.
+ *
+ * Every soldier spawning from one source used to arrive at the identical
+ * coordinate, and since soldiers do not collide with each other they simply
+ * stayed stacked. The renderer hides bodies within about a metre of the camera
+ * — a teammate standing on you would otherwise fill the screen with the inside
+ * of their head — so a whole wave spawning together was a wave nobody could
+ * see. Spawning at main alongside eleven teammates looked like spawning alone.
+ *
+ * Uniform over the disc: `sqrt` on the radius, because sampling the radius
+ * linearly would pile everyone into the middle, which is the problem this is
+ * here to fix. The two draws come from the seeded RNG, so a wave lands in the
+ * same places on a replay of the same seed.
+ *
+ * The result is pushed out of any cover it landed in, using the same
+ * resolution a walking soldier gets — spawning inside a wall would otherwise
+ * be a new way to get stuck.
+ */
+function scatterAround(world: World, at: { x: number; y: number }): { x: number; y: number } {
+  const angle = world.rng.next() * Math.PI * 2;
+  const radius = Math.sqrt(world.rng.next()) * SPAWN_SCATTER_RADIUS_M;
+  const scattered = {
+    x: at.x + Math.cos(angle) * radius,
+    y: at.y + Math.sin(angle) * radius,
+  };
+  return cloneVec2(resolveCollisions(world, scattered, BODY_RADIUS_M));
+}
+
 function enterWorld(
   world: World,
   player: Player,
@@ -329,7 +361,7 @@ function enterWorld(
   player.status = "alive";
   player.health = PLAYER_MAX_HEALTH;
   player.ammo = PLAYER_MAX_AMMO;
-  player.pos = cloneVec2(at);
+  player.pos = scatterAround(world, at);
   player.waypoint = null;
   player.steer = null;
   player.reviveProgressTicks = 0;
