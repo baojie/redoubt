@@ -504,6 +504,14 @@ describe("event routing", () => {
     // Every kind must land in exactly one of: broadcast to all, sent to those
     // near it, or deliberately kept server-side. A new event that nobody routed
     // now fails here instead of being silently dropped on the wire.
+    //
+    // What this does not prove: the sets are keyed by event *kind*, so a kind
+    // emitted from two different places is shown to be routed, not shown to be
+    // routed correctly from both. Today that gap is empty — the two positional
+    // kinds each carry a position and share the culling maths — but a
+    // positional kind with nothing to cull on would pass here and still go
+    // nowhere. The delivery test below is the guard against that, and it only
+    // covers the blast.
     const unrouted: string[] = [];
     const doubleRouted: string[] = [];
 
