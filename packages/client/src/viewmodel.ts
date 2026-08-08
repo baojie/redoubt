@@ -25,7 +25,7 @@
 import * as THREE from "three";
 import { rules } from "@redoubt/core";
 import { flashTexture } from "./flash.js";
-import { buildRifle, muzzleOffset, sightHeight } from "./rifle.js";
+import { buildRifle, muzzleOffset, opticHeight } from "./rifle.js";
 
 /**
  * Overall rifle length, and how far out it is held.
@@ -61,11 +61,12 @@ const HIP_ROLL_RAD = 0.12;
  * Aiming: sights centred horizontally and dropped so the eye looks over them.
  *
  * The vertical figure is derived rather than dialled in — the weapon is lowered
- * by exactly the height of its own sights, which is what puts the sight line,
- * rather than the barrel, on the crosshair.
+ * by exactly the height of its own optic axis, which is what puts the line
+ * through the scope, rather than the barrel or the iron sights, on the
+ * crosshair.
  */
 const ADS_X = 0;
-const ADS_Y = -sightHeight(RIFLE_LENGTH_M);
+const ADS_Y = -opticHeight(RIFLE_LENGTH_M);
 const ADS_Z = -0.58;
 
 /** How fast the weapon moves between carry and aim. */
@@ -113,6 +114,28 @@ const FLASH_LIGHT_INTENSITY = 14;
  */
 const FLASH_SIZE_VARIATION = 0.35;
 
+/**
+ * The hands and forearms holding the weapon.
+ *
+ * Without them the rifle floats, and a floating rifle reads as a HUD element
+ * rather than as something a person is carrying — which undercuts the whole
+ * reason for drawing a weapon in the first place.
+ *
+ * They are children of the weapon, not of the camera. Hands that stayed put
+ * while the rifle kicked and swayed would look worse than no hands at all, and
+ * parenting them to the weapon makes recoil, sway, the aim transition and the
+ * reload dip all carry them for free.
+ *
+ * Positions come from the rifle's own proportions: the firing hand at the grip,
+ * the support hand forward on the handguard. Both are placed relative to the
+ * receiver, so resizing the weapon moves the hands with it.
+ */
+const SLEEVE_COLOUR = 0x4a5340;
+const GLOVE_COLOUR = 0x24262a;
+const FOREARM_LENGTH_M = 0.26;
+const FOREARM_RADIUS_M = 0.027;
+const HAND_SIZE_M = 0.065;
+
 /** How far the weapon drops out of view during a reload. */
 const RELOAD_DROP_M = 0.22;
 const RELOAD_ROLL_RAD = 0.5;
@@ -151,10 +174,66 @@ export class Viewmodel {
     this.flashLight = new THREE.PointLight(0xffd9a0, 0, FLASH_LIGHT_RANGE_M, 2);
     this.flashLight.position.copy(this.flash.position);
     this.root.add(this.flashLight);
+
+    this.addHands();
     // Drawn after the world and never culled: it is always in front of the eye,
     // and a frustum test on an object parented to the camera is wasted work.
     this.root.frustumCulled = false;
     camera.add(this.root);
+  }
+
+  /**
+   * Two arms, gripping.
+   *
+   * Each forearm is aimed along the line from its hand back towards the
+   * shoulder it comes from, rather than being built out of Euler angles. The
+   * first attempt set `rotation.set(x, 0, z)` on a cylinder and the second
+   * rotation applied in the frame the first had already turned, so both arms
+   * came out as logs pointing in arbitrary directions.
+   *
+   * Only the near part of the forearm is drawn. A limb continued all the way to
+   * a shoulder would pass through the camera's near plane and be sliced open
+   * from the inside, and none of it would be visible anyway.
+   */
+  private addHands(): void {
+    const sleeve = new THREE.MeshStandardMaterial({ color: SLEEVE_COLOUR, roughness: 0.9 });
+    const glove = new THREE.MeshStandardMaterial({ color: GLOVE_COLOUR, roughness: 0.75 });
+    const up = new THREE.Vector3(0, 1, 0);
+
+    const arm = (hand: THREE.Vector3, shoulder: THREE.Vector3): void => {
+      const fist = new THREE.Mesh(
+        new THREE.BoxGeometry(HAND_SIZE_M, HAND_SIZE_M * 1.15, HAND_SIZE_M * 1.35),
+        glove,
+      );
+      fist.position.copy(hand);
+      this.root.add(fist);
+
+      const towards = shoulder.clone().sub(hand).normalize();
+      const forearm = new THREE.Mesh(
+        new THREE.CylinderGeometry(
+          FOREARM_RADIUS_M * 0.82,
+          FOREARM_RADIUS_M,
+          FOREARM_LENGTH_M,
+          10,
+        ),
+        sleeve,
+      );
+      // The cylinder's own axis is +y; point that at the shoulder.
+      forearm.quaternion.setFromUnitVectors(up, towards);
+      forearm.position.copy(hand).addScaledVector(towards, FOREARM_LENGTH_M / 2);
+      this.root.add(forearm);
+    };
+
+    // Shoulders sit below and behind the weapon, outboard on each side. These
+    // are directions for the forearms to run along, not anatomy — nothing above
+    // the elbow is ever drawn.
+    const rightShoulder = new THREE.Vector3(0.2, -0.34, 0.34);
+    const leftShoulder = new THREE.Vector3(-0.22, -0.3, 0.3);
+
+    // Firing hand on the grip.
+    arm(new THREE.Vector3(0.045, -0.085, RIFLE_LENGTH_M * 0.05), rightShoulder);
+    // Support hand forward, under the handguard.
+    arm(new THREE.Vector3(-0.045, -0.075, -RIFLE_LENGTH_M * 0.3), leftShoulder);
   }
 
   /**

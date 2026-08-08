@@ -32,6 +32,25 @@ const GRIP_DROP = 0.15;
 const SIGHT_RISE = 0.055;
 
 /**
+ * The optic, as fractions of overall length.
+ *
+ * The magnification itself already existed — the wheel drives it — but there
+ * was nothing on the weapon to look through, so aiming narrowed the field of
+ * view with no explanation on screen. The tube is what makes the zoom legible
+ * as a scope rather than as the world lurching.
+ *
+ * It sits above the iron sights and slightly forward, on two rings, which is
+ * where a scope goes and also what keeps it clear of the ejection port side of
+ * the receiver.
+ */
+const SCOPE_LENGTH = 0.26;
+const SCOPE_RADIUS = 0.032;
+const SCOPE_RISE = 0.115;
+const SCOPE_FORWARD = 0.16;
+const RING_RADIUS = 0.017;
+const LENS_RADIUS = 0.038;
+
+/**
  * A rifle lying along its own -z, muzzle forward, origin at the receiver.
  *
  * The origin is the grip rather than the centre or the muzzle, because both
@@ -101,12 +120,109 @@ export function buildRifle(
     -RECEIVER_LENGTH - BARREL_LENGTH * 0.8,
   );
 
+  addScope(rifle, lengthM, material);
+
   return rifle;
 }
 
 /** Where the sights sit above the receiver, so a caller can line the eye up. */
 export function sightHeight(lengthM: number): number {
   return (RECEIVER_HEIGHT / 2 + SIGHT_RISE) * lengthM;
+}
+
+/**
+ * The optic's axis above the receiver — where the eye actually goes.
+ *
+ * Aiming lowers the weapon by exactly this, so what lands on the crosshair is
+ * the line through the tube. Using `sightHeight` instead puts the eye level
+ * with the iron sights and the scope body then sits squarely over the target,
+ * which is the one thing a scope must never do.
+ */
+export function opticHeight(lengthM: number): number {
+  return (RECEIVER_HEIGHT / 2 + SCOPE_RISE) * lengthM;
+}
+
+/**
+ * Tube, mounting rings and a glass objective.
+ *
+ * The tube is open-ended and the eyepiece has no lens in it, because the eye
+ * sits directly behind it when aiming and anything solid there covers the
+ * target. The first version capped both ends and put a tinted disc at the
+ * eyepiece: it looked like a scope from outside and, the moment you aimed,
+ * planted an opaque circle exactly over whatever you were shooting at.
+ *
+ * What is left is a ring to look through — the inside wall of the tube, drawn
+ * from both sides, framing the sight picture the way a real eyepiece does.
+ */
+function addScope(rifle: THREE.Group, lengthM: number, body: THREE.Material): void {
+  const axisY = (RECEIVER_HEIGHT / 2 + SCOPE_RISE) * lengthM;
+  const centreZ = -SCOPE_FORWARD * lengthM;
+
+  const tubeMaterial = (body as THREE.MeshStandardMaterial).clone();
+  tubeMaterial.side = THREE.DoubleSide;
+
+  const tube = new THREE.Mesh(
+    new THREE.CylinderGeometry(
+      SCOPE_RADIUS * lengthM,
+      SCOPE_RADIUS * lengthM,
+      SCOPE_LENGTH * lengthM,
+      16,
+      1,
+      true,
+    ),
+    tubeMaterial,
+  );
+  // Cylinders stand on their own y; the scope lies along the barrel.
+  tube.rotation.x = Math.PI / 2;
+  tube.position.set(0, axisY, centreZ);
+  rifle.add(tube);
+
+  // The bell at the objective end, also open, so it flares without blocking.
+  const bell = new THREE.Mesh(
+    new THREE.CylinderGeometry(
+      LENS_RADIUS * lengthM,
+      SCOPE_RADIUS * lengthM,
+      0.05 * lengthM,
+      16,
+      1,
+      true,
+    ),
+    tubeMaterial,
+  );
+  bell.rotation.x = Math.PI / 2;
+  bell.position.set(0, axisY, centreZ - (SCOPE_LENGTH * lengthM) / 2);
+  rifle.add(bell);
+
+  // Glass, at the far end only — far enough forward that it tints the view
+  // rather than masking it, which is what glass in a scope actually does.
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x9fd8ea,
+    roughness: 0.1,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.18,
+    side: THREE.DoubleSide,
+  });
+  const objective = new THREE.Mesh(
+    new THREE.CircleGeometry(LENS_RADIUS * lengthM * 0.95, 16),
+    glass,
+  );
+  objective.position.set(0, axisY, centreZ - (SCOPE_LENGTH * lengthM) / 2 - 0.025 * lengthM);
+  rifle.add(objective);
+
+  for (const offset of [-0.07, 0.07]) {
+    const ring = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        RING_RADIUS * lengthM,
+        RING_RADIUS * lengthM,
+        0.02 * lengthM,
+        10,
+      ),
+      body,
+    );
+    ring.position.set(0, axisY - SCOPE_RADIUS * lengthM, centreZ + offset * lengthM);
+    rifle.add(ring);
+  }
 }
 
 /**
