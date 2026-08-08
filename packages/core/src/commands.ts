@@ -110,6 +110,7 @@ export type Command =
    * intent onto it — only the server can issue it, and only when it was told
    * to at startup, so it is unreachable from the wire.
    */
-  | { t: "setInvulnerable"; player: PlayerId; on: boolean };
+  | { t: "setInvulnerable"; player: PlayerId; on: boolean }
+  | { t: "setInfiniteAmmo"; player: PlayerId; on: boolean };
 
 export type CommandType = Command["t"];

@@ -16,6 +16,7 @@ interface Args {
   playersPerTeam?: number;
   laneName?: string;
   invulnerableHumans?: boolean;
+  infiniteAmmoHumans?: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -46,6 +47,9 @@ function parseArgs(argv: readonly string[]): Args {
       case "--invulnerable":
         args.invulnerableHumans = true;
         break;
+      case "--infinite-ammo":
+        args.infiniteAmmoHumans = true;
+        break;
       case "--help":
       case "-h":
         process.stdout.write(
@@ -57,6 +61,7 @@ function parseArgs(argv: readonly string[]): Args {
             "  --players <n>   players per team",
             "  --lane <name>   force a RAAS lane",
             "  --invulnerable  playtest: human-held soldiers take no damage",
+            "  --infinite-ammo playtest: human-held soldiers never run out of ammo",
             "",
           ].join("\n"),
         );

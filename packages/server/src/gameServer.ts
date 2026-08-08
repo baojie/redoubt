@@ -33,6 +33,7 @@ export interface GameServerOptions {
    * wire — a client cannot turn this on for itself.
    */
   invulnerableHumans?: boolean;
+  infiniteAmmoHumans?: boolean;
 }
 
 /** Events worth pushing to clients. The rest are telemetry and stay server-side. */
@@ -128,6 +129,7 @@ export class GameServer {
       playersPerTeam: options.playersPerTeam,
       laneName: options.laneName,
       invulnerableHumans: options.invulnerableHumans,
+      infiniteAmmoHumans: options.infiniteAmmoHumans,
     });
   }
 
@@ -156,7 +158,8 @@ export class GameServer {
         // Said out loud on every start. A server where the humans cannot be
         // killed is not a server whose results mean anything, and finding that
         // out from the gameplay is far too late.
-        `${this.options.invulnerableHumans === true ? "  PLAYTEST: humans invulnerable" : ""}\n`,
+        `${this.options.invulnerableHumans === true ? "  PLAYTEST: humans invulnerable" : ""}` +
+        `${this.options.infiniteAmmoHumans === true ? "  PLAYTEST: humans never run dry" : ""}\n`,
     );
   }
 

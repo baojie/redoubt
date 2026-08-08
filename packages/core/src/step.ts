@@ -370,6 +370,12 @@ export class Simulation {
         player.invulnerable = command.on;
         return;
       }
+
+      case "setInfiniteAmmo": {
+        // Same as above: unreachable from a client, so nothing to validate.
+        player.infiniteAmmo = command.on;
+        return;
+      }
     }
   }
 }

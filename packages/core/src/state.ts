@@ -143,6 +143,7 @@ export function createInitialState(options: MatchOptions): GameState {
         history: [],
         lastHitBy: null,
         invulnerable: false,
+        infiniteAmmo: false,
         kills: 0,
         deaths: 0,
       };

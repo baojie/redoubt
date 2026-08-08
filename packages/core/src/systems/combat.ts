@@ -90,7 +90,14 @@ export function fire(world: World, shooter: Player, renderTick: number): FireRej
   const state = world.state;
   if (shooter.status !== "alive") return "notAlive";
   if (shooter.vehicle !== null) return "mounted";
-  if (shooter.reloadingUntilTick > state.tick) return "reloading";
+  // A pending reload is any non-zero finish tick, not one strictly in the
+  // future. `updateWeapons` is what clears it, and it runs after commands — so
+  // on the exact tick a reload was due to finish, `> state.tick` reads false,
+  // the trigger falls through to an empty magazine, and the reload below is
+  // started over. Holding the trigger through a dry magazine restarted the
+  // timer every single tick: the magazine never refilled, the reserve was never
+  // touched, and the weapon never fired again for the rest of the match.
+  if (shooter.reloadingUntilTick > 0) return "reloading";
   if (state.tick < shooter.nextShotAtTick) return "weaponCycling";
   if (shooter.magazine < AMMO_PER_ENGAGEMENT) {
     // Dry magazine starts a reload rather than silently doing nothing, which
@@ -223,7 +230,7 @@ export function aimAt(
 }
 
 export function beginReload(world: World, player: Player): void {
-  if (player.reloadingUntilTick > world.state.tick) return;
+  if (player.reloadingUntilTick > 0) return;
   if (player.magazine >= MAGAZINE_ROUNDS) return;
   if (player.ammo <= 0) return;
   player.reloadingUntilTick = world.state.tick + RELOAD_TICKS;
@@ -237,6 +244,12 @@ export function updateWeapons(world: World): void {
   const perTick = 1 / TICK_RATE_HZ;
 
   for (const player of state.players) {
+    // Playtest only, and off for everyone unless the server was asked for it.
+    // Done before the reload draws from the reserve, so a soldier who was
+    // already dry is re-armed by the next reload rather than having to find a
+    // crate first.
+    if (player.infiniteAmmo) player.ammo = PLAYER_MAX_AMMO;
+
     if (player.reloadingUntilTick > 0 && state.tick >= player.reloadingUntilTick) {
       player.reloadingUntilTick = 0;
       // The reserve pays for the magazine, so a soldier who has not resupplied

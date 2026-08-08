@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { distance, rules } from "../src/index.js";
+import { distance, rules, type Command, type GameEvent } from "../src/index.js";
 import { eventsOfType, firstEvent, harness } from "./helpers.js";
 
 /**
@@ -355,6 +355,56 @@ describe("deploying", () => {
     const ordinary = underFire(false);
     expect(ordinary.health).toBeLessThan(rules.PLAYER_MAX_HEALTH);
     expect(ordinary.status).not.toBe("alive");
+  });
+
+  it("keeps a soldier firing while infiniteAmmo is set, and only then", () => {
+    // The same shape of test as the invulnerability one above, and for the same
+    // reason: "still has ammo after a minute" would pass just as well against a
+    // rifle that never fired a round. So the control has to demonstrate both
+    // that the rifle works and that it genuinely runs dry.
+    const emptyMagazines = (infinite: boolean) => {
+      const h = harness();
+      const shooter = h.team(0)[0]!;
+      const target = h.team(1)[0]!;
+      // Open ground by a main base. Standing them in the middle of the map puts
+      // both inside a building, and every round stops in the wall.
+      const base = h.state.teams[0].mainBase;
+      h.place(shooter.id, { x: base.x + 20, y: base.y });
+      h.place(target.id, { x: base.x + 60, y: base.y });
+      target.invulnerable = true; // Keep the target up, so firing never stops for want of one.
+
+      if (infinite) {
+        h.tick([{ t: "setInfiniteAmmo", player: shooter.id, on: true }]);
+        expect(shooter.infiniteAmmo).toBe(true);
+      }
+
+      const fire = () => [
+        { t: "look", player: shooter.id, yaw: 0, pitch: 0 } as Command,
+        { t: "fire", player: shooter.id } as Command,
+      ];
+      const shotsBy = (events: GameEvent[]) =>
+        events.filter((e) => e.t === "shotFired" && e.shooter === shooter.id).length;
+
+      // Long enough that a full magazine and a full reserve are spent — a
+      // soldier carries 130 rounds and fires them in a little over a minute —
+      // then a final window to see whether anything is left.
+      const early = shotsBy(h.run(rules.secondsToTicks(10), fire));
+      h.run(rules.secondsToTicks(100), fire);
+      const late = shotsBy(h.run(rules.secondsToTicks(20), fire));
+      return { shooter, earlyShots: early, lateShots: late };
+    };
+
+    const supplied = emptyMagazines(true);
+    expect(supplied.shooter.ammo).toBe(rules.PLAYER_MAX_AMMO);
+    // Still shooting at the end of the run, which is the whole point.
+    expect(supplied.lateShots).toBeGreaterThan(0);
+
+    // The control: same fire, no flag. It has to have fired plenty at first —
+    // otherwise this proves nothing about the rifle — and then stopped.
+    const ordinary = emptyMagazines(false);
+    expect(ordinary.earlyShots).toBeGreaterThan(0);
+    expect(ordinary.shooter.ammo).toBe(0);
+    expect(ordinary.lateShots).toBe(0);
   });
 
   it("does not stack a whole wave on one coordinate", () => {

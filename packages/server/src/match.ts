@@ -33,6 +33,15 @@ export interface MatchOptions {
    * is no way for a client to ask.
    */
   invulnerableHumans?: boolean;
+
+  /**
+   * Playtest: human-held soldiers never run out of ammunition.
+   *
+   * Separate from `invulnerableHumans` because they answer different questions
+   * — one lets you stand in the open and watch, the other lets you keep
+   * shooting. Off unless asked for, and no client can ask.
+   */
+  infiniteAmmoHumans?: boolean;
 }
 
 /** How far behind real time the loop may fall before it stops trying to catch up. */
@@ -137,7 +146,7 @@ export class Match {
     // Human commands go in first. Where both a human and a bot could touch the
     // same shared object in one tick the human's intent is the one that lands,
     // and ordering is fixed so a replay of the same inputs reproduces exactly.
-    const commands = this.invulnerabilityCommands().concat(this.pending, botCommands);
+    const commands = this.playtestCommands().concat(this.pending, botCommands);
     this.pending = [];
 
     return this.sim.step(commands);
@@ -155,13 +164,21 @@ export class Match {
    * leave and are re-slotted across a restart. Only players whose flag is
    * actually stale produce a command, so the steady state costs nothing.
    */
-  private invulnerabilityCommands(): Command[] {
-    if (this.options.invulnerableHumans !== true) return [];
+  private playtestCommands(): Command[] {
+    const invulnerable = this.options.invulnerableHumans === true;
+    const infiniteAmmo = this.options.infiniteAmmoHumans === true;
+    if (!invulnerable && !infiniteAmmo) return [];
+
     const commands: Command[] = [];
     for (const id of this.humans) {
       const player = this.world.player(id);
-      if (player === undefined || player.invulnerable) continue;
-      commands.push({ t: "setInvulnerable", player: id, on: true });
+      if (player === undefined) continue;
+      if (invulnerable && !player.invulnerable) {
+        commands.push({ t: "setInvulnerable", player: id, on: true });
+      }
+      if (infiniteAmmo && !player.infiniteAmmo) {
+        commands.push({ t: "setInfiniteAmmo", player: id, on: true });
+      }
     }
     return commands;
   }

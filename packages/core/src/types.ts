@@ -131,6 +131,21 @@ export interface Player {
    * it is not something a client can ask for.
    */
   invulnerable: boolean;
+
+  /**
+   * The soldier's pouches refill themselves.
+   *
+   * A playtest switch, like `invulnerable`, and set the same way: only the
+   * server can issue the command and only when it was started with
+   * `--infinite-ammo`. There is no intent for it on the wire, so a client
+   * cannot ask for it.
+   *
+   * Only the reserve is topped up, not the magazine. Reloading still happens on
+   * its normal rhythm and still takes the same three and a half seconds — the
+   * point is to stop a playtest ending because someone ran dry, not to hand out
+   * a different weapon with no reload to test against.
+   */
+  infiniteAmmo: boolean;
   /** Lifetime counters, for the battle report. */
   kills: number;
   deaths: number;
