@@ -21,6 +21,7 @@ import { flashTexture, streakTexture } from "./flash.js";
 import { buildCoverSurfaces, fitBoxUvs, type Surface } from "./buildingTextures.js";
 import { SoldierModel, type SoldierRig } from "./soldierModel.js";
 import { ScopeView } from "./scopeView.js";
+import { VehicleModels, type VehicleRig } from "./vehicleModel.js";
 import { Viewmodel } from "./viewmodel.js";
 import type { ClientWorld } from "./world.js";
 
@@ -147,6 +148,12 @@ export class Scene3D {
   private readonly markers = new Map<number, THREE.Sprite>();
   private readonly structures = new Map<string, THREE.Object3D>();
   private readonly hulls = new Map<number, THREE.Group>();
+  /** Rigs for hulls drawn with a real model, keyed the same way. */
+  private readonly vehicleRigs = new Map<number, VehicleRig>();
+  /** Wheel angle and last position per vehicle, so wheels turn with movement. */
+  private readonly wheelAngle = new Map<number, number>();
+  private readonly lastVehiclePos = new Map<number, { x: number; y: number }>();
+  readonly vehicles = new VehicleModels();
   private readonly tracers: Tracer[] = [];
   private readonly tracerLines: THREE.LineSegments;
   private readonly enemyTracerLines: THREE.LineSegments;
@@ -617,22 +624,30 @@ export class Scene3D {
       let hull = this.hulls.get(vehicle.id);
       if (hull === undefined) {
         hull = new THREE.Group();
-        const body = new THREE.Mesh(
-          new THREE.BoxGeometry(spec.halfLengthM * 2, spec.heightM * 0.7, spec.halfWidthM * 2),
-          new THREE.MeshLambertMaterial({ color: 0xffffff }),
-        );
-        body.name = "body";
-        body.position.y = spec.heightM * 0.35;
-        hull.add(body);
+        const rig = this.vehicles.instantiate(vehicle.kind);
+        if (rig !== null) {
+          hull.add(rig.root);
+          this.vehicleRigs.set(vehicle.id, rig);
+        } else {
+          // No model: the boxes it always had. A vehicle you cannot see is far
+          // worse than a plain one.
+          const body = new THREE.Mesh(
+            new THREE.BoxGeometry(spec.halfLengthM * 2, spec.heightM * 0.7, spec.halfWidthM * 2),
+            new THREE.MeshLambertMaterial({ color: 0xffffff }),
+          );
+          body.name = "body";
+          body.position.y = spec.heightM * 0.35;
+          hull.add(body);
 
-        // A cab at one end, so the hull has a nose.
-        const cab = new THREE.Mesh(
-          new THREE.BoxGeometry(spec.halfLengthM * 0.7, spec.heightM * 0.5, spec.halfWidthM * 1.8),
-          new THREE.MeshLambertMaterial({ color: 0x3a4048 }),
-        );
-        cab.name = "cab";
-        cab.position.set(spec.halfLengthM * 0.6, spec.heightM * 0.78, 0);
-        hull.add(cab);
+          // A cab at one end, so the hull has a nose.
+          const cab = new THREE.Mesh(
+            new THREE.BoxGeometry(spec.halfLengthM * 0.7, spec.heightM * 0.5, spec.halfWidthM * 1.8),
+            new THREE.MeshLambertMaterial({ color: 0x3a4048 }),
+          );
+          cab.name = "cab";
+          cab.position.set(spec.halfLengthM * 0.6, spec.heightM * 0.78, 0);
+          hull.add(cab);
+        }
 
         this.hulls.set(vehicle.id, hull);
         this.scene.add(hull);
@@ -647,12 +662,31 @@ export class Scene3D {
       hull.position.copy(worldToScene(vehicle.x, vehicle.y, groundZ));
       hull.rotation.y = sceneYaw(vehicle.heading);
 
-      const body = hull.getObjectByName("body") as THREE.Mesh | undefined;
-      if (body !== undefined) {
-        const material = body.material as THREE.MeshLambertMaterial;
-        // Darkens as it takes damage, so a truck about to die looks like one.
-        const wear = Math.max(0.25, vehicle.health);
-        material.color.setHex(TEAM_COLOUR[vehicle.team]).multiplyScalar(wear);
+      // Darkens as it takes damage, so a truck about to die looks like one.
+      const wear = Math.max(0.25, vehicle.health);
+      const rig = this.vehicleRigs.get(vehicle.id);
+      if (rig !== undefined) {
+        VehicleModels.tint(rig, TEAM_COLOUR[vehicle.team], wear);
+
+        // Wheels turn by how far the hull actually moved, which is the same
+        // reason the soldiers' legs do: a time-driven spin keeps going while
+        // the truck is parked.
+        const previous = this.lastVehiclePos.get(vehicle.id);
+        const moved =
+          previous === undefined
+            ? 0
+            : Math.hypot(vehicle.x - previous.x, vehicle.y - previous.y);
+        this.lastVehiclePos.set(vehicle.id, { x: vehicle.x, y: vehicle.y });
+        this.wheelAngle.set(
+          vehicle.id,
+          VehicleModels.spinWheels(rig, this.wheelAngle.get(vehicle.id) ?? 0, moved),
+        );
+      } else {
+        const body = hull.getObjectByName("body") as THREE.Mesh | undefined;
+        if (body !== undefined) {
+          const material = body.material as THREE.MeshLambertMaterial;
+          material.color.setHex(TEAM_COLOUR[vehicle.team]).multiplyScalar(wear);
+        }
       }
     }
 
@@ -660,6 +694,9 @@ export class Scene3D {
       if (seen.has(id)) continue;
       this.scene.remove(hull);
       this.hulls.delete(id);
+      this.vehicleRigs.delete(id);
+      this.wheelAngle.delete(id);
+      this.lastVehiclePos.delete(id);
     }
   }
 

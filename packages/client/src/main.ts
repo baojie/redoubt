@@ -121,6 +121,11 @@ joinButton.addEventListener("click", () => {
         void scene.soldiers.load().then((ok) => {
           if (!ok) hud.note("soldier model unavailable — using simple figures");
         });
+        // Same deal for the vehicles: they load in the background and hulls
+        // created before they land keep the boxes until they are recreated.
+        void scene.vehicles.load().then((ok) => {
+          if (!ok) hud.note("vehicle models unavailable — using simple hulls");
+        });
       } catch (error) {
         scene = null;
         firstPersonView = false;
