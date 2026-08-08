@@ -23,8 +23,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { rules } from "@redoubt/core";
 
-/** Joints bend about their own x, which is across the body for this rig. */
-const SWING_AXIS = new THREE.Vector3(1, 0, 0);
+/** Legs hinge about their own x, which is across the body for this rig. */
+const LEG_AXIS = new THREE.Vector3(1, 0, 0);
 
 const MODEL_URL = "/models/RiggedFigure.glb";
 
@@ -55,18 +55,56 @@ const BONES = {
   legR: "leg_joint_R_1",
 } as const;
 
+/** The joint below each shoulder, watched to work out which way "down" is. */
+const ELBOWS: Partial<Record<keyof typeof BONES, string>> = {
+  armL: "arm_joint_L_2",
+  armR: "arm_joint_R_2",
+};
+
+/** Bones used only as measuring points for where gear goes. */
+const ANCHOR_BONES = {
+  neckTop: "neck_joint_2",
+  hip: "leg_joint_L_1",
+} as const;
+
 /** How far the arms hang from the bind pose, which has them straight out. */
 const ARM_REST_RAD = 1.25;
 /** Stride and arm swing amplitudes. */
 const LEG_SWING_RAD = 0.55;
 const ARM_SWING_RAD = 0.35;
 
+/**
+ * Candidate hinge axes, tried in order when calibrating a shoulder.
+ *
+ * The two shoulders are mirrored in the bind pose, so one and the same axis
+ * lowers the left arm and lifts the right one — which is exactly what happened:
+ * the left arm hung correctly while the right stayed locked out sideways in a
+ * half T-pose, in shipped code, for as long as the model has been in. Rather
+ * than hard-coding the sign per side and hoping the next model matches, each
+ * shoulder is calibrated: rotate it, see which way the elbow actually went,
+ * keep the axis that put the elbow lowest.
+ */
+const AXIS_CANDIDATES: ReadonlyArray<THREE.Vector3> = [
+  new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 0, 1),
+  new THREE.Vector3(0, 0, -1),
+];
+
 export interface SoldierRig {
   root: THREE.Object3D;
   /** Facing correction, measured from the model rather than assumed. */
   facingOffset: number;
-  /** Bones we pose, with their bind rotations kept so poses stay relative. */
-  bones: Partial<Record<keyof typeof BONES, { bone: THREE.Object3D; rest: THREE.Quaternion }>>;
+  /**
+   * Bones we pose, with their bind rotations kept so poses stay relative and
+   * the hinge axis that was measured for each one.
+   */
+  bones: Partial<
+    Record<
+      keyof typeof BONES,
+      { bone: THREE.Object3D; rest: THREE.Quaternion; axis: THREE.Vector3 }
+    >
+  >;
   /** Parts whose colour marks the team. */
   tinted: THREE.Mesh[];
 }
@@ -90,6 +128,16 @@ export class SoldierModel {
    * horizontal axis is the facing axis.
    */
   private facingOffset = 0;
+
+  /**
+   * Half the width of the head, measured off the mesh in metres.
+   *
+   * Derived from the shoulders at first, and a helmet sized that way ended up
+   * entirely *inside* the skull — invisible, and indistinguishable from a
+   * helmet that had failed to load. The head is the one part whose size the
+   * skeleton says nothing about, so it gets measured from the geometry.
+   */
+  private headHalfWidth = 0.1;
   /** Null until a load has been attempted; false if it failed. */
   loaded: boolean | null = null;
 
@@ -109,6 +157,7 @@ export class SoldierModel {
       // the scene expects; shoulders across z means it needs a quarter turn.
       this.facingOffset = width >= depth ? 0 : Math.PI / 2;
 
+      this.headHalfWidth = measureHeadHalfWidth(root) * this.scale;
       this.template = root;
       // The bundled clip is ignored: two keyframes over 1.25 s is a loader
       // test, not a walk. The skeleton is posed directly instead.
@@ -147,26 +196,21 @@ export class SoldierModel {
     const root = new THREE.Group();
     root.add(model);
 
-    // A rifle held across the chest. The model is a bare mannequin, and at any
-    // real range the silhouette is all you get — a shape with a weapon reads
-    // as a soldier, a shape without one reads as scenery.
-    const rifle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.07, 0.07, 0.7),
-      new THREE.MeshStandardMaterial({ color: 0x24262a, roughness: 0.8 }),
-    );
-    rifle.position.set(0.16, rules.TORSO_HEIGHT_M * 0.25, -0.26);
-    rifle.name = "rifle";
-    root.add(rifle);
-
     const bones: SoldierRig["bones"] = {};
     for (const [key, name] of Object.entries(BONES) as Array<
       [keyof typeof BONES, string]
     >) {
       const bone = model.getObjectByName(name);
       if (bone === undefined) continue;
-      bones[key] = { bone, rest: bone.quaternion.clone() };
+      const rest = bone.quaternion.clone();
+      const elbowName = ELBOWS[key];
+      const elbow = elbowName === undefined ? undefined : model.getObjectByName(elbowName);
+      const axis =
+        elbow === undefined ? LEG_AXIS.clone() : lowestSwingAxis(root, bone, rest, elbow);
+      bones[key] = { bone, rest, axis };
     }
 
+    this.addGear(root, model, tinted);
     const rig: SoldierRig = { root, tinted, facingOffset: this.facingOffset, bones };
     // Drop the arms out of the bind pose immediately, so a soldier who never
     // moves is not standing there like a scarecrow.
@@ -184,6 +228,8 @@ export class SoldierModel {
     // Arms swing opposite the leg on the same side, as they do.
     this.poseBone(rig, "legL", swing * LEG_SWING_RAD);
     this.poseBone(rig, "legR", -swing * LEG_SWING_RAD);
+    // Both arms swing about the axis measured for their own shoulder, so the
+    // mirrored bind poses no longer send one arm down and the other outwards.
     this.poseBone(rig, "armL", ARM_REST_RAD - swing * ARM_SWING_RAD);
     this.poseBone(rig, "armR", ARM_REST_RAD + swing * ARM_SWING_RAD);
     return next;
@@ -197,7 +243,139 @@ export class SoldierModel {
     // replacing whatever orientation the rigger gave it.
     entry.bone.quaternion
       .copy(entry.rest)
-      .multiply(new THREE.Quaternion().setFromAxisAngle(SWING_AXIS, angle));
+      .multiply(new THREE.Quaternion().setFromAxisAngle(entry.axis, angle));
+  }
+
+
+  /**
+   * Hang gear on a bare mannequin.
+   *
+   * The base model is an unclothed figure, and at any real range the silhouette
+   * is all a player gets — a shape with a helmet, a vest and a weapon reads as
+   * a soldier; the same shape without them reads as scenery.
+   *
+   * Built from primitives rather than sourced: no CC0 modern-military character
+   * turned out to be fetchable (the good CC0 packs are medieval fantasy, and
+   * the humanoid ones sit behind interactive downloads), and gear is the cheap
+   * 80% of the difference anyway.
+   *
+   * Every size and position is derived from the skeleton rather than written
+   * down. The first attempt used figures for a real adult — a 0.34 m chest rig
+   * on a model whose shoulders are 0.22 m apart — and produced a slab floating
+   * off the front of the body. Measuring costs a few matrix multiplies once per
+   * soldier and cannot drift away from the model.
+   */
+  private addGear(root: THREE.Group, model: THREE.Object3D, tinted: THREE.Mesh[]): void {
+    root.updateMatrixWorld(true);
+    const at = (name: string): THREE.Vector3 | null => {
+      const bone = model.getObjectByName(name);
+      if (bone === undefined) return null;
+      return bone.getWorldPosition(new THREE.Vector3());
+    };
+
+    const shoulder = at(BONES.armL);
+    const neckTop = at(ANCHOR_BONES.neckTop);
+    const hip = at(ANCHOR_BONES.hip);
+    // Without the skeleton there is nothing to hang gear off, and guessing is
+    // what produced the floating slab. A bare figure is the better failure.
+    if (shoulder === null || neckTop === null || hip === null) return;
+
+    const halfWidth = Math.abs(shoulder.x);
+    const headTop = rules.BODY_HALF_HEIGHT_M * 2 - rules.TORSO_HEIGHT_M;
+
+    /**
+     * Gear lives in its own frame so it can be placed nose-forward.
+     *
+     * `facingOffset` is added to the body's yaw by the renderer, so within the
+     * rig the axes are not the soldier's own. Undoing it here lets the gear be
+     * written in body terms.
+     *
+     * Which way that frame points was measured, not assumed. The width-versus-
+     * depth test that produces `facingOffset` fixes the axis but says nothing
+     * about the sign, and this model has no face to check it against — so it
+     * had never been checked at all. Two independent readings agree that the
+     * front is +z: the toe joints sit forward of the ankles along +z, and a
+     * soldier rendered turned towards the camera showed the pack.
+     */
+    const gear = new THREE.Group();
+    gear.rotation.y = -this.facingOffset;
+    root.add(gear);
+
+    const webbing = new THREE.MeshStandardMaterial({ color: 0x2f3238, roughness: 0.85 });
+    // Team-coloured, so friend-or-foe survives at the range where the body is
+    // only a few pixels.
+    const kit = new THREE.MeshStandardMaterial({ roughness: 0.9 });
+
+    const add = (
+      geometry: THREE.BufferGeometry,
+      x: number,
+      y: number,
+      z: number,
+      material: THREE.Material,
+    ): THREE.Mesh => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      gear.add(mesh);
+      if (material === kit) tinted.push(mesh);
+      return mesh;
+    };
+
+    // Helmet: a dome and a brim, sized off the head that is actually there.
+    const headHalf = this.headHalfWidth;
+    const headMid = (neckTop.y + headTop) / 2;
+    // Sat on the crown rather than around the middle of the head, so the dome
+    // covers the skull instead of intersecting it.
+    const helmetY = headMid + (headTop - headMid) * 0.35;
+    add(
+      new THREE.SphereGeometry(headHalf * 1.2, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      0,
+      helmetY,
+      0,
+      kit,
+    );
+    add(
+      new THREE.CylinderGeometry(headHalf * 1.35, headHalf * 1.35, 0.03, 14),
+      0,
+      helmetY,
+      0,
+      kit,
+    );
+
+    // Chest rig, from just under the shoulders to just above the waist.
+    const chestTop = shoulder.y - 0.04;
+    const chestBottom = (shoulder.y + hip.y) / 2 + 0.04;
+    const chestHeight = Math.max(0.1, chestTop - chestBottom);
+    const torsoDepth = halfWidth * 1.25;
+    add(
+      new THREE.BoxGeometry(halfWidth * 1.75, chestHeight, torsoDepth),
+      0,
+      (chestTop + chestBottom) / 2,
+      0,
+      kit,
+    );
+
+    // Pack on the back.
+    add(
+      new THREE.BoxGeometry(halfWidth * 1.4, chestHeight * 1.1, torsoDepth * 0.7),
+      0,
+      (chestTop + chestBottom) / 2 + 0.02,
+      -torsoDepth * 0.75,
+      webbing,
+    );
+
+    // Rifle, carried across the front on the right, pointing the way the
+    // soldier faces. On a model with no face this is what tells a player which
+    // way someone is looking.
+    const rifleY = (chestBottom + hip.y) / 2;
+    const barrel = halfWidth * 5;
+    add(new THREE.BoxGeometry(0.04, 0.05, barrel), halfWidth * 0.9, rifleY, barrel * 0.25, webbing);
+    add(
+      new THREE.BoxGeometry(0.035, 0.11, 0.05),
+      halfWidth * 0.9,
+      rifleY - 0.07,
+      barrel * 0.35,
+      webbing,
+    );
   }
 
   /** Paint a soldier. Emissive carries friend-or-foe at a glance. */
@@ -211,4 +389,72 @@ export class SoldierModel {
       }
     }
   }
+}
+
+/**
+ * Which hinge axis actually lowers this arm?
+ *
+ * Applies the rest rotation about each candidate and keeps whichever leaves the
+ * elbow lowest. Measured rather than assumed for the same reason `facingOffset`
+ * is: the alternative is a per-rig table of signs that is wrong the first time
+ * anyone swaps the model, and silently wrong — a T-posed arm looks like a bad
+ * animation, not like a bug.
+ */
+function lowestSwingAxis(
+  root: THREE.Object3D,
+  shoulder: THREE.Object3D,
+  rest: THREE.Quaternion,
+  elbow: THREE.Object3D,
+): THREE.Vector3 {
+  let best = AXIS_CANDIDATES[0]!;
+  let lowest = Infinity;
+  const probe = new THREE.Vector3();
+
+  for (const axis of AXIS_CANDIDATES) {
+    shoulder.quaternion
+      .copy(rest)
+      .multiply(new THREE.Quaternion().setFromAxisAngle(axis, ARM_REST_RAD));
+    root.updateMatrixWorld(true);
+    const y = elbow.getWorldPosition(probe).y;
+    if (y < lowest) {
+      lowest = y;
+      best = axis;
+    }
+  }
+
+  shoulder.quaternion.copy(rest);
+  root.updateMatrixWorld(true);
+  return best.clone();
+}
+
+/**
+ * Half the width of the head, in the model's own units.
+ *
+ * Walks the vertices above the neck rather than trusting a ratio: heads are the
+ * part of a figure artists stylise most, and a helmet that misses is worse than
+ * no helmet at all. Runs once, on the template.
+ */
+function measureHeadHalfWidth(root: THREE.Object3D): number {
+  const neck = root.getObjectByName(ANCHOR_BONES.neckTop);
+  if (neck === undefined) return 0.1;
+
+  root.updateMatrixWorld(true);
+  const neckY = neck.getWorldPosition(new THREE.Vector3()).y;
+
+  let widest = 0;
+  const vertex = new THREE.Vector3();
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const positions = mesh.geometry.getAttribute("position");
+    if (positions === undefined) return;
+    for (let i = 0; i < positions.count; i++) {
+      vertex.fromBufferAttribute(positions as THREE.BufferAttribute, i);
+      vertex.applyMatrix4(mesh.matrixWorld);
+      if (vertex.y < neckY) continue;
+      widest = Math.max(widest, Math.abs(vertex.x));
+    }
+  });
+
+  return widest > 0 ? widest : 0.1;
 }
