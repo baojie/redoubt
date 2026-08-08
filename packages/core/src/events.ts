@@ -181,3 +181,61 @@ export type GameEvent =
 
 /** Sink handed to systems so they can report without owning the array. */
 export type EventSink = GameEvent[];
+
+/**
+ * Every kind of event a system can emit, at runtime.
+ *
+ * The union above cannot be enumerated at runtime, which is how an event kind
+ * comes to exist that nothing downstream ever carries: `grenadeExploded` was
+ * emitted correctly, matched no case in the server's routing, and reached no
+ * client — the fourth time this project produced that same shape of gap.
+ *
+ * The two checks below make the list impossible to leave stale: one fails to
+ * compile if a kind is emitted but not listed, the other if a kind is listed
+ * but no longer exists. Adding an event and forgetting this file is a build
+ * error, and the server has a test that every entry here is routed somewhere.
+ */
+export const EVENT_KINDS = [
+  "matchStarted",
+  "matchEnded",
+  "controlPointCaptured",
+  "controlPointNeutralised",
+  "doubleNeutralStarted",
+  "doubleNeutralEnded",
+  "mercyBleedStarted",
+  "mercyBleedEnded",
+  "habitatOverrunStarted",
+  "habitatOverrunEnded",
+  "fobPlaced",
+  "fobDestroyed",
+  "deployablePlaced",
+  "deployableBuilt",
+  "deployableDestroyed",
+  "rallyPlaced",
+  "rallyDestroyed",
+  "playerSpawned",
+  "playerDowned",
+  "playerRevived",
+  "playerDied",
+  "shotFired",
+  "grenadeThrown",
+  "grenadeExploded",
+  "vehicleDestroyed",
+  "supplyLoaded",
+  "supplyUnloaded",
+  "ticketChange",
+  "commandRejected",
+] as const;
+
+type ListedKind = (typeof EVENT_KINDS)[number];
+type EmittedKind = GameEvent["t"];
+
+/** Fails to compile if a kind is emitted but missing from EVENT_KINDS. */
+type MissingFromList = Exclude<EmittedKind, ListedKind>;
+/** Fails to compile if EVENT_KINDS names something no longer emitted. */
+type StaleInList = Exclude<ListedKind, EmittedKind>;
+
+const _everyEmittedKindIsListed: MissingFromList extends never ? true : never = true;
+const _nothingStaleIsListed: StaleInList extends never ? true : never = true;
+void _everyEmittedKindIsListed;
+void _nothingStaleIsListed;

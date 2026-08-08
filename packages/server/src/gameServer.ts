@@ -37,7 +37,44 @@ export interface GameServerOptions {
 }
 
 /** Events worth pushing to clients. The rest are telemetry and stay server-side. */
-const BROADCAST_EVENTS: ReadonlySet<GameEvent["t"]> = new Set<GameEvent["t"]>([
+/**
+ * Events sent only to clients near where they happened.
+ *
+ * Kept as a set rather than an `||` chain so that it can be asserted over: the
+ * routing test checks that every event kind the rules can emit lands in exactly
+ * one of these three categories. `grenadeExploded` was in none of them, which
+ * is why the client could never draw a blast.
+ */
+export const POSITIONAL_EVENTS: ReadonlySet<GameEvent["t"]> = new Set<GameEvent["t"]>([
+  "shotFired",
+  "grenadeExploded",
+]);
+
+/**
+ * Events that deliberately never leave the server.
+ *
+ * Listed explicitly, with the reason, so that "not sent" is a decision on the
+ * record rather than an omission nobody noticed.
+ */
+export const SERVER_ONLY_EVENTS: ReadonlySet<GameEvent["t"]> = new Set<GameEvent["t"]>([
+  // Telemetry for the batch harness; players learn of a throw by seeing it.
+  "grenadeThrown",
+  // The thrower's own client already knows; everyone else finds out by being
+  // shot at, which is the point.
+  "playerSpawned",
+  // Rejections are answered per-connection, not broadcast.
+  "commandRejected",
+  // Balance instrumentation. The scoreboard carries the tickets themselves.
+  "ticketChange",
+  // Logistics detail that only the batch reports read.
+  "supplyLoaded",
+  "deployablePlaced",
+  "habitatOverrunStarted",
+  "habitatOverrunEnded",
+  "mercyBleedEnded",
+]);
+
+export const BROADCAST_EVENTS: ReadonlySet<GameEvent["t"]> = new Set<GameEvent["t"]>([
   "matchStarted",
   "matchEnded",
   "controlPointCaptured",
@@ -319,9 +356,7 @@ export class GameServer {
     // where you are standing. `grenadeExploded` was missing from both lists
     // entirely, so the client could never draw a blast — the rule fired, the
     // event existed, and nothing downstream ever heard it.
-    const positional = events.filter(
-      (e) => e.t === "shotFired" || e.t === "grenadeExploded",
-    );
+    const positional = events.filter((e) => POSITIONAL_EVENTS.has(e.t));
     if (worth.length === 0 && positional.length === 0) return;
 
     const world = this.match.view;
@@ -343,6 +378,8 @@ export class GameServer {
               if (e.t === "shotFired") {
                 return near(e.from, TRACER_VISIBILITY_M) || near(e.to, TRACER_VISIBILITY_M);
               }
+              // The set is the routing decision; this narrows for the compiler.
+              if (e.t !== "grenadeExploded") return false;
               // A blast is a bigger, louder thing than a tracer, and one you
               // want to see from further away — it is the only warning that
               // somebody is throwing grenades at your position.

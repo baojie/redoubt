@@ -20,7 +20,13 @@ import {
   type Snapshot,
   type WelcomePayload,
 } from "@redoubt/protocol";
-import { GameServer } from "../src/gameServer.js";
+import {
+  BROADCAST_EVENTS,
+  GameServer,
+  POSITIONAL_EVENTS,
+  SERVER_ONLY_EVENTS,
+} from "../src/gameServer.js";
+import { EVENT_KINDS } from "@redoubt/core";
 
 /** Ports are picked high and per-suite to avoid colliding with anything real. */
 let nextPort = 18800;
@@ -484,5 +490,57 @@ describe("match lifecycle", () => {
     server.advanceForTest(60_000); // a minute-long freeze
     // It catches up a little and then gives up on the rest, as it should.
     expect(server.match.state.tick - before).toBeLessThan(rules.secondsToTicks(2));
+  });
+});
+
+describe("event routing", () => {
+  it("routes every kind of event the rules can emit", () => {
+    // The gap this closes: `grenadeExploded` was emitted by core, matched
+    // nothing in the server's routing, and reached no client — so the code that
+    // draws a blast had never run once. It was the fourth time this project
+    // produced that shape, and the previous three were each found by playing
+    // the game rather than by a test.
+    //
+    // Every kind must land in exactly one of: broadcast to all, sent to those
+    // near it, or deliberately kept server-side. A new event that nobody routed
+    // now fails here instead of being silently dropped on the wire.
+    const unrouted: string[] = [];
+    const doubleRouted: string[] = [];
+
+    for (const kind of EVENT_KINDS) {
+      const homes = [
+        BROADCAST_EVENTS.has(kind),
+        POSITIONAL_EVENTS.has(kind),
+        SERVER_ONLY_EVENTS.has(kind),
+      ].filter(Boolean).length;
+      if (homes === 0) unrouted.push(kind);
+      if (homes > 1) doubleRouted.push(kind);
+    }
+
+    expect(unrouted).toEqual([]);
+    // Two homes would mean an event both broadcast to everyone and culled by
+    // distance, which is a contradiction rather than a duplicate.
+    expect(doubleRouted).toEqual([]);
+  });
+
+  it("delivers a blast to a client standing near it", async () => {
+    // The end-to-end half. The routing test above would still pass if the
+    // culling maths dropped every blast, so this fires one and reads the wire.
+    const { server, port } = startServer();
+    const client = await TestClient.connect(port);
+    await settle();
+
+    const self = server.match.view.player(client.welcome()!.playerId)!;
+    server.match.submit([
+      { t: "look", player: self.id, yaw: 0, pitch: 0 },
+      { t: "throwGrenade", player: self.id },
+    ]);
+    advanceTicks(server, rules.GRENADE_FUSE_TICKS + 10);
+    await settle(120);
+
+    const blasts = client.received.filter(
+      (m) => m.t === "events" && m.events.some((e) => e.t === "grenadeExploded"),
+    );
+    expect(blasts.length).toBeGreaterThan(0);
   });
 });
