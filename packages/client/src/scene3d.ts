@@ -17,7 +17,10 @@
 
 import * as THREE from "three";
 import { Terrain, createTerrain, rules, type CoverVolume, type TeamId } from "@redoubt/core";
+import { worldToScene, sceneYaw } from "./axes.js";
 import { flashTexture, streakTexture } from "./flash.js";
+import { GrassField } from "./grassField.js";
+import { applyMacroVariation, buildGroundSurface, groundTint } from "./groundTexture.js";
 import { buildCoverSurfaces, fitBoxUvs, type Surface } from "./buildingTextures.js";
 import { SoldierModel, type SoldierRig } from "./soldierModel.js";
 import { ScopeView } from "./scopeView.js";
@@ -107,31 +110,18 @@ export interface Tracer {
   own: boolean;
 }
 
-/** Rules-space (x east, y north, z up) to Three.js space (y up, -z north). */
-export function worldToScene(x: number, y: number, z: number): THREE.Vector3 {
-  return new THREE.Vector3(x, z, -y);
-}
-
-/**
- * Rules yaw to a Three.js rotation about the up axis.
- *
- * Rules yaw is measured from +x (east) toward +y (north). A Three.js object
- * with no rotation faces -z, which under `worldToScene` is north — that is,
- * yaw = π/2. So the scene rotation is the world yaw less a quarter turn.
- *
- * Worth deriving rather than guessing: the first version of this had the sign
- * inverted, which put the camera exactly backwards and made the whole world
- * look like it was behind you.
- */
-export function sceneYaw(worldYaw: number): number {
-  return worldYaw - Math.PI / 2;
-}
+// The axis conversion lives in `axes.ts` so the grass field can use it without
+// importing the renderer that draws it. Re-exported: everything that needs it
+// has always reached for it here.
+export { worldToScene, sceneYaw } from "./axes.js";
 
 export class Scene3D {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly terrain: Terrain;
+  /** Standing grass, kept under wherever the camera currently is. */
+  private readonly grass: GrassField;
 
   private readonly bodies = new Map<number, THREE.Object3D>();
   /** Rigs for bodies drawn with the glTF model, keyed the same way. */
@@ -186,7 +176,12 @@ export class Scene3D {
     // The same terrain the server is adjudicating against, rebuilt from seed.
     this.terrain = createTerrain(terrainSeed, mainBases, mapSizeM);
 
-    this.scene.add(this.buildTerrainMesh(mapSizeM));
+    this.scene.add(this.buildTerrainMesh(mapSizeM, terrainSeed));
+    // Standing blades for the near ground, where a painted mat is obviously
+    // painted. Seeded off the terrain, so two clients that agree about the hill
+    // agree about the grass on it as well.
+    this.grass = new GrassField(this.terrain, terrainSeed);
+    this.scene.add(this.grass.mesh);
     this.addLighting();
 
     // Two sets of lines rather than one, because a tracer's most useful
@@ -222,6 +217,11 @@ export class Scene3D {
     this.camera.updateProjectionMatrix();
   }
 
+  /** How many grass clumps are standing around the camera. Debug aid. */
+  get grassCount(): number {
+    return this.grass.mesh.count;
+  }
+
   /** How many player bodies are currently in the scene. Debug aid. */
   get bodyCount(): number {
     return this.bodies.size;
@@ -241,26 +241,59 @@ export class Scene3D {
   // Static scenery
   // -------------------------------------------------------------------------
 
-  private buildTerrainMesh(mapSizeM: number): THREE.Mesh {
+  private buildTerrainMesh(mapSizeM: number, terrainSeed: number): THREE.Mesh {
     const segments = Math.round(mapSizeM / MESH_RESOLUTION_M);
     const geometry = new THREE.PlaneGeometry(mapSizeM, mapSizeM, segments, segments);
     // PlaneGeometry lies in the xy plane; stand it up and sample heights.
     geometry.rotateX(-Math.PI / 2);
 
+    const surface = buildGroundSurface();
     const position = geometry.attributes.position as THREE.BufferAttribute;
+    const uv = geometry.attributes.uv as THREE.BufferAttribute;
+    const tint = new Float32Array(position.count * 3);
+
     for (let i = 0; i < position.count; i++) {
       // Plane is centred on the origin; shift into map coordinates.
       const sceneX = position.getX(i) + mapSizeM / 2;
       const sceneZ = position.getZ(i) + mapSizeM / 2;
       const worldY = mapSizeM - sceneZ;
       position.setY(i, this.terrain.heightAt(sceneX, worldY));
+
+      // The plane's own UVs span 0..1 over a kilometre, which would stretch one
+      // tile of grass across the whole map. Rescaled here so a tile is a fixed
+      // number of *metres*, the same way cover fits its textures.
+      uv.setXY(i, (uv.getX(i) * mapSizeM) / surface.tileM, (uv.getY(i) * mapSizeM) / surface.tileM);
+
+      // Patch colour, baked per vertex: one field drier than the next, and bare
+      // earth on anything too steep to hold grass. Eight metres a vertex is far
+      // coarser than the texture and far finer than the map, which is exactly
+      // the scale the texture cannot vary at.
+      const colour = groundTint(sceneX, worldY, this.terrain.normalAt(sceneX, worldY).z, terrainSeed);
+      tint[i * 3] = colour.r;
+      tint[i * 3 + 1] = colour.g;
+      tint[i * 3 + 2] = colour.b;
     }
+    geometry.setAttribute("color", new THREE.BufferAttribute(tint, 3));
     geometry.computeVertexNormals();
 
-    const mesh = new THREE.Mesh(
-      geometry,
-      new THREE.MeshLambertMaterial({ color: 0x5c6b4a }),
-    );
+    const material = new THREE.MeshStandardMaterial({
+      map: surface.map,
+      normalMap: surface.normalMap,
+      // Ground is matt and never metal; a specular sheen on grass reads as wet
+      // tarmac from any angle where the sun is behind you.
+      roughness: 1,
+      metalness: 0,
+      vertexColors: true,
+    });
+    // Sharply oblique underfoot, so without anisotropy the mat smears into a
+    // grey band from about ten metres out — the exact ground the player is
+    // looking at most of the time.
+    const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    surface.map.anisotropy = anisotropy;
+    surface.normalMap.anisotropy = anisotropy;
+    applyMacroVariation(material, surface);
+
+    const mesh = new THREE.Mesh(geometry, material);
     // Move the centred plane so its corner sits at the map origin.
     mesh.position.set(mapSizeM / 2, 0, -mapSizeM / 2);
     mesh.receiveShadow = false;
@@ -948,6 +981,11 @@ export class Scene3D {
   }
 
   render(dt: number): void {
+    // Driven off the camera rather than off the player, because they are not
+    // always the same thing — a spectator or a photograph moves the camera
+    // directly, and grass that stayed behind at the player's feet would be a
+    // bald circle in the middle of the shot.
+    this.grass.update(this.camera.position.x, -this.camera.position.z, dt);
     this.updateTracers(dt);
     this.updateWorldFlashes(dt);
     this.renderer.render(this.scene, this.camera);
