@@ -22,6 +22,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { rules } from "@redoubt/core";
+import { buildRifle } from "./rifle.js";
 
 /** Legs hinge about their own x, which is across the body for this rig. */
 const LEG_AXIS = new THREE.Vector3(1, 0, 0);
@@ -366,16 +367,14 @@ export class SoldierModel {
     // Rifle, carried across the front on the right, pointing the way the
     // soldier faces. On a model with no face this is what tells a player which
     // way someone is looking.
-    const rifleY = (chestBottom + hip.y) / 2;
-    const barrel = halfWidth * 5;
-    add(new THREE.BoxGeometry(0.04, 0.05, barrel), halfWidth * 0.9, rifleY, barrel * 0.25, webbing);
-    add(
-      new THREE.BoxGeometry(0.035, 0.11, 0.05),
-      halfWidth * 0.9,
-      rifleY - 0.07,
-      barrel * 0.35,
-      webbing,
-    );
+    //
+    // Same shape as the one in the player's own hands — see rifle.ts — but
+    // built without the close-up detail: there can be two dozen soldiers on
+    // screen and none of them is close enough for a trigger guard to matter.
+    const rifle = buildRifle(halfWidth * 5, webbing, false);
+    rifle.position.set(halfWidth * 0.9, (chestBottom + hip.y) / 2, halfWidth * 5 * 0.3);
+    rifle.rotation.y = Math.PI;
+    gear.add(rifle);
   }
 
   /** Paint a soldier. Emissive carries friend-or-foe at a glance. */
