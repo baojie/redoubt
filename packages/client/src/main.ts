@@ -90,6 +90,11 @@ joinButton.addEventListener("click", () => {
           welcome.map.sizeM,
         );
         scene.buildCover(welcome.map.cover);
+        // Loads in the background; bodies drawn before it lands use the
+        // primitive figure and swap over as they are recreated.
+        void scene.soldiers.load().then((ok) => {
+          if (!ok) hud.note("soldier model unavailable — using simple figures");
+        });
       } catch (error) {
         scene = null;
         firstPersonView = false;

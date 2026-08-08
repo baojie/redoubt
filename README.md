@@ -154,6 +154,17 @@ disagree about movement, which is a bug rather than a network condition.
 - JSON on the wire. Fine at this scale, and the first thing to change if the
   bandwidth number starts climbing.
 
+## Assets
+
+One art asset: the soldier model, `RiggedFigure` from the Khronos glTF sample
+set, CC-BY 4.0. See `ATTRIBUTION.md` — the licence requires attribution and
+that file is why it exists. Everything else, terrain included, is generated at
+runtime from the match seed.
+
+The model is optional: if it fails to load the client draws soldiers from
+primitives instead. A missing art asset should cost fidelity, not the ability
+to see the enemy.
+
 ## Legal
 
 Game mechanics, rules and numbers are not copyrightable, and the design table in

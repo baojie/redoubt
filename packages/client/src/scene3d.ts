@@ -17,6 +17,7 @@
 
 import * as THREE from "three";
 import { Terrain, createTerrain, rules, type CoverVolume, type TeamId } from "@redoubt/core";
+import { SoldierModel, type SoldierRig } from "./soldierModel.js";
 import type { ClientWorld } from "./world.js";
 
 /** Metres per terrain mesh quad. Finer than the noise, coarser than a body. */
@@ -52,8 +53,16 @@ const DOWNED_COLOUR = 0xc9a227;
  * engagement rests on, and drawing a marker over them would be a wallhack
  * shipped as a feature.
  */
-const MARKER_HEIGHT_M = 2.4;
-const MARKER_MIN_SCREEN_SIZE = 0.9;
+const MARKER_HEIGHT_M = 2.3;
+/**
+ * Sprites scale in world units, so a marker that should look the same size on
+ * screen has to grow *with* distance. The first version put a floor under that
+ * — which inverted the intent: up close the floor won and the marker became a
+ * billboard the size of a door hanging over your squadmate's head.
+ */
+const MARKER_SCREEN_SIZE = 0.014;
+/** Close enough to see them properly: the marker is clutter at this range. */
+const MARKER_HIDE_WITHIN_M = 25;
 
 /** A tracer lives this long on screen after its round lands. */
 const TRACER_LINGER_S = 0.12;
@@ -94,6 +103,10 @@ export class Scene3D {
   readonly terrain: Terrain;
 
   private readonly bodies = new Map<number, THREE.Object3D>();
+  /** Rigs for bodies drawn with the glTF model, keyed the same way. */
+  private readonly rigs = new Map<number, SoldierRig>();
+  private readonly walkPhase = new Map<number, number>();
+  readonly soldiers = new SoldierModel();
   /** Last drawn position per player, so the walk cycle follows real motion. */
   private readonly lastSeen = new Map<number, { x: number; y: number }>();
   private readonly markers = new Map<number, THREE.Sprite>();
@@ -263,7 +276,14 @@ export class Scene3D {
 
       let body = this.bodies.get(player.id);
       if (body === undefined) {
-        body = this.makeBody();
+        // Prefer the model; fall back to primitives if it never loaded.
+        const rig = this.soldiers.instantiate();
+        if (rig !== null) {
+          this.rigs.set(player.id, rig);
+          body = rig.root;
+        } else {
+          body = this.makeBody();
+        }
         this.bodies.set(player.id, body);
         this.scene.add(body);
       }
@@ -295,32 +315,49 @@ export class Scene3D {
       body.position.copy(
         worldToScene(at.x, at.y, groundZ + (down ? DOWN_TORSO_HEIGHT_M : rules.TORSO_HEIGHT_M)),
       );
-      body.rotation.set(0, sceneYaw(player.yaw), 0);
+      const rig0 = this.rigs.get(player.id);
+      body.rotation.set(0, sceneYaw(player.yaw) + (rig0?.facingOffset ?? 0), 0);
+
+      // Soldiers do not collide with each other — they can and do stand in the
+      // same spot — so anyone close enough to be *inside* the camera is hidden.
+      // Otherwise a teammate who walks onto you fills the screen with the
+      // inside of their own head.
+      const fromCamera = body.position.distanceTo(this.camera.position);
+      body.visible = fromCamera > BODY_HIDE_WITHIN_M;
       if (down) {
         // Face down on the ground rather than a shrunken standing figure: a
         // casualty has to be findable, and its pose is the only cue.
         body.rotation.x = -Math.PI / 2;
-      } else {
-        this.animate(body as THREE.Group, moved);
       }
 
       const colour = down ? DOWNED_COLOUR : TEAM_COLOUR[player.team];
-      for (const part of (body as THREE.Group).children) {
-        if (part.name === "rifle") continue;
-        const material = ((part as THREE.Mesh).material as THREE.MeshLambertMaterial);
-        material.color.setHex(colour);
-        // Friend or foe is the single most important thing to read instantly.
-        material.emissive.setHex(friendly ? 0x101820 : 0x200000);
+      const emissive = friendly ? 0x101820 : 0x200000;
+
+      const rig = rig0;
+      if (rig !== undefined) {
+        if (!down) {
+          const phase = this.walkPhase.get(player.id) ?? 0;
+          this.walkPhase.set(player.id, this.soldiers.poseWalk(rig, phase, moved));
+        }
+        this.soldiers.tint(rig, colour, emissive);
+      } else {
+        if (!down) this.animate(body as THREE.Group, moved);
+        for (const part of (body as THREE.Group).children) {
+          if (part.name === "rifle") continue;
+          const material = (part as THREE.Mesh).material as THREE.MeshLambertMaterial;
+          material.color.setHex(colour);
+          // Friend or foe is the most important thing to read instantly.
+          material.emissive.setHex(emissive);
+        }
       }
 
       if (marker !== undefined) {
-        marker.position.copy(
-          worldToScene(at.x, at.y, groundZ + MARKER_HEIGHT_M),
-        );
-        // Scale with distance so the marker stays the same size on screen —
-        // it is a label, and a label that shrinks to nothing is not one.
+        marker.position.copy(worldToScene(at.x, at.y, groundZ + MARKER_HEIGHT_M));
         const range = marker.position.distanceTo(this.camera.position);
-        const size = Math.max(MARKER_MIN_SCREEN_SIZE, range * 0.012);
+        // Constant apparent size, and gone entirely once they are close enough
+        // to simply look at.
+        marker.visible = range > MARKER_HIDE_WITHIN_M;
+        const size = range * MARKER_SCREEN_SIZE;
         marker.scale.set(size, size, 1);
         (marker.material as THREE.SpriteMaterial).color.setHex(
           down ? DOWNED_COLOUR : TEAM_COLOUR[player.team],
@@ -332,6 +369,8 @@ export class Scene3D {
       if (seen.has(id)) continue;
       this.scene.remove(object);
       this.bodies.delete(id);
+      this.rigs.delete(id);
+      this.walkPhase.delete(id);
     }
     for (const [id, marker] of this.markers) {
       if (seen.has(id)) continue;
@@ -597,3 +636,5 @@ const ADS_EASE_PER_S = 12;
 const WALK_CYCLES_PER_M = 0.55;
 /** Torso height of a body lying on the ground. */
 const DOWN_TORSO_HEIGHT_M = 0.25;
+/** Closer than this and a body is inside the camera, not in front of it. */
+const BODY_HIDE_WITHIN_M = 1.1;
