@@ -294,5 +294,6 @@ function selfView(player: Player): SelfView {
     suppression: quantise(player.suppression),
     aiming: player.aiming,
     dragging: player.dragging,
+    runTicks: player.runTicks,
   };
 }

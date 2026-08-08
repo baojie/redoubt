@@ -299,8 +299,38 @@ export const MAIN_BASE_SPAWN_DELAY_TICKS = secondsToTicks(MAIN_BASE_SPAWN_DELAY_
 export const PLAYER_MAX_HEALTH = 100;
 export const PLAYER_MAX_AMMO = 100;
 
-export const PLAYER_SPEED_MPS = 3.5;
+export const PLAYER_SPEED_MPS = 4.5;
 export const PLAYER_SPEED_M_PER_TICK = PLAYER_SPEED_MPS / TICK_RATE_HZ;
+
+/**
+ * Keep moving and you build up to a run.
+ *
+ * Speed ramps from a standing start to `RUN_MAX_MULTIPLIER` over
+ * `RUN_RAMP_TICKS` of unbroken movement, and drops back the moment you stop.
+ * Crossing open ground therefore rewards committing to the crossing, and
+ * stop-start movement in cover costs you the run-up — which is the trade the
+ * whole game is about.
+ *
+ * It is capped, not open-ended. Speed feeds hit registration, collision
+ * resolution and the capture rules; a number that grows without bound walks
+ * through cover between ticks and outruns the lag-compensation window.
+ */
+export const RUN_MAX_MULTIPLIER = 1.7;
+export const RUN_RAMP_SECONDS = 3;
+export const RUN_RAMP_TICKS = secondsToTicks(RUN_RAMP_SECONDS);
+
+/**
+ * How much of the run-up a soldier has earned, from 1 to RUN_MAX_MULTIPLIER.
+ *
+ * Shared by the server's movement system and the client's predictor, on
+ * purpose: prediction replays this exact curve, and two copies of it would
+ * disagree the first time either was retuned.
+ */
+export function runSpeedMultiplier(runTicks: number): number {
+  if (runTicks <= 0) return 1;
+  const progress = Math.min(1, runTicks / RUN_RAMP_TICKS);
+  return 1 + (RUN_MAX_MULTIPLIER - 1) * progress;
+}
 
 /** Downed players bleed out over this long unless a medic reaches them. */
 export const BLEEDOUT_DURATION_S = 90;

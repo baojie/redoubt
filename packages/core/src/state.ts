@@ -144,6 +144,7 @@ export function createInitialState(options: MatchOptions): GameState {
         lastHitBy: null,
         invulnerable: false,
         infiniteAmmo: false,
+        runTicks: 0,
         kills: 0,
         deaths: 0,
       };

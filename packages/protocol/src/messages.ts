@@ -34,7 +34,21 @@ import type {
   VehicleType,
 } from "@redoubt/core";
 
-export const PROTOCOL_VERSION = 1;
+/**
+ * Bumped to 2 when `SelfView.runTicks` was added.
+ *
+ * The version exists so a mismatch is refused at the door. It was not bumped
+ * with that field, and the consequence was immediate and ugly: a client running
+ * the new code against a server still running the old one read `runTicks` as
+ * undefined, computed `undefined + 1`, and predicted its own position as NaN.
+ * The world stopped being drawn entirely — no error, no clue, just a blank
+ * screen and `pos NaN, NaN` in the corner.
+ *
+ * Any change to what is on the wire has to come with a bump, including one that
+ * only adds a field. "Additive changes are compatible" is only true for readers
+ * that check whether the field arrived.
+ */
+export const PROTOCOL_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Intents: what a client is allowed to ask for
@@ -156,6 +170,14 @@ export interface SelfView extends PlayerView {
   aiming: boolean;
   /** A casualty this player is hauling, or null. */
   dragging: PlayerId | null;
+  /**
+   * Ticks of unbroken movement, which is what the run-up is built from.
+   *
+   * Sent because the client predicts its own movement and has to replay the
+   * same speed curve; without it, prediction would walk at the standing-start
+   * speed while the server ran, and the correction would grow with every step.
+   */
+  runTicks: number;
 }
 
 export interface ControlPointView {

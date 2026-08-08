@@ -103,7 +103,7 @@ export class Connection {
         this.welcome = message;
         // Ids do not survive a match restart, and a restart re-welcomes us —
         // so a welcome always means "throw away what you knew".
-        this.predictor.reset({ x: 0, y: 0 });
+        this.predictor.reset({ x: 0, y: 0 }, 0);
         this.feed.length = 0;
         this.onWelcome?.();
         return;
@@ -121,7 +121,7 @@ export class Connection {
         if (self.status !== "alive" || self.vehicle !== null) {
           this.predictor.snapTo({ x: self.x, y: self.y });
         } else {
-          this.predictor.reconcile({ x: self.x, y: self.y }, snapshot.ackSeq);
+          this.predictor.reconcile({ x: self.x, y: self.y }, snapshot.ackSeq, self.runTicks);
         }
         return;
       }

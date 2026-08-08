@@ -47,10 +47,20 @@ export class Predictor {
   /** True once the server has told us where we actually are. */
   private initialised = false;
 
-  reset(position: Vec): void {
+  /**
+   * Our own copy of the run-up counter.
+   *
+   * Prediction has to model speed, and speed now depends on how long we have
+   * been moving — so the counter is part of the predicted state and is replayed
+   * from the server's value exactly like position is.
+   */
+  private runTicks = 0;
+
+  reset(position: Vec, runTicks: number): void {
     this.position = { ...position };
     this.pending = [];
     this.lastErrorM = 0;
+    this.runTicks = Number.isFinite(runTicks) ? runTicks : 0;
     this.initialised = true;
   }
 
@@ -66,7 +76,8 @@ export class Predictor {
   predict(frame: PendingFrame): void {
     if (!this.initialised) return;
     this.pending.push(frame);
-    this.position = step(this.position, frame.steer);
+    this.runTicks = frame.steer === null ? 0 : this.runTicks + 1;
+    this.position = step(this.position, frame.steer, this.runTicks);
   }
 
   /**
@@ -75,9 +86,16 @@ export class Predictor {
    * `authoritative` is the position at the tick the server had consumed input
    * `ackSeq`, so every frame after that sequence still needs applying.
    */
-  reconcile(authoritative: Vec, ackSeq: number): void {
+  /**
+   * `runTicks` is the server's run-up counter at `ackSeq`, and is required
+   * rather than defaulted. Defaulting it to zero replays the pending frames at
+   * a standing start while the server was at a run, which shows up as a
+   * permanent non-zero correction on every snapshot — caught by the test that
+   * asserts zero error while the two agree.
+   */
+  reconcile(authoritative: Vec, ackSeq: number, runTicks: number): void {
     if (!this.initialised) {
-      this.reset(authoritative);
+      this.reset(authoritative, runTicks);
       return;
     }
 
@@ -85,9 +103,12 @@ export class Predictor {
     this.pending = this.pending.filter((frame) => frame.seq > ackSeq);
 
     let replayed: Vec = { ...authoritative };
+    let replayedRunTicks = Number.isFinite(runTicks) ? runTicks : 0;
     for (const frame of this.pending) {
-      replayed = step(replayed, frame.steer);
+      replayedRunTicks = frame.steer === null ? 0 : replayedRunTicks + 1;
+      replayed = step(replayed, frame.steer, replayedRunTicks);
     }
+    this.runTicks = replayedRunTicks;
 
     this.lastErrorM = Math.hypot(replayed.x - before.x, replayed.y - before.y);
     this.position = replayed;
@@ -101,6 +122,9 @@ export class Predictor {
     this.position = { ...position };
     this.pending = [];
     this.lastErrorM = 0;
+    // Whatever run-up we had is gone: this is called when we are dead or a
+    // passenger, neither of which is running anywhere.
+    this.runTicks = 0;
     this.initialised = true;
   }
 }
@@ -110,12 +134,22 @@ export class Predictor {
  * system; it reads the same speed constant so a balance change cannot silently
  * desynchronise the two.
  */
-function step(from: Vec, steer: { x: number; y: number } | null): Vec {
+function step(
+  from: Vec,
+  steer: { x: number; y: number } | null,
+  runTicks: number,
+): Vec {
   if (steer === null) return from;
-  return {
-    x: from.x + steer.x * rules.PLAYER_SPEED_M_PER_TICK,
-    y: from.y + steer.y * rules.PLAYER_SPEED_M_PER_TICK,
+  const speed = rules.PLAYER_SPEED_M_PER_TICK * rules.runSpeedMultiplier(runTicks);
+  const next = {
+    x: from.x + steer.x * speed,
+    y: from.y + steer.y * speed,
   };
+  // A single non-finite value here is unrecoverable: it poisons the position,
+  // then the camera, and the client draws an empty world with no indication of
+  // why. Refusing to move is a far better failure than moving to NaN.
+  if (!Number.isFinite(next.x) || !Number.isFinite(next.y)) return from;
+  return next;
 }
 
 /** Normalise a raw input direction the same way the server will. */

@@ -15,6 +15,7 @@ import {
   BODY_RADIUS_M,
   DRAG_SPEED_MULTIPLIER,
   PLAYER_SPEED_M_PER_TICK,
+  runSpeedMultiplier,
   TICK_RATE_HZ,
   VEHICLE_REVERSE_MULTIPLIER,
   VEHICLE_SPECS,
@@ -147,7 +148,14 @@ export function updateMovement(world: World): void {
 
     // Aiming down the sights costs mobility. That trade is what makes taking
     // the shot a decision rather than a free upgrade.
-    let speed = PLAYER_SPEED_M_PER_TICK;
+    // The run-up, counted from sustained steering. Note that pushing into a
+    // wall still counts: the collision resolution that would reveal it happens
+    // further down the pipeline, and a soldier who rounds a corner without
+    // letting go of the key keeps their stride, which is the case that matters.
+    if (player.steer === null) player.runTicks = 0;
+    else player.runTicks++;
+
+    let speed = PLAYER_SPEED_M_PER_TICK * runSpeedMultiplier(player.runTicks);
     if (player.aiming) speed *= ADS_MOVE_SPEED_MULTIPLIER;
     // Hauling a body is slower still, and the two stack: you are bent double,
     // using one arm, and looking down a sight you cannot hold steady.

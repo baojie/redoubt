@@ -146,6 +146,14 @@ export interface Player {
    * a different weapon with no reload to test against.
    */
   infiniteAmmo: boolean;
+
+  /**
+   * Consecutive ticks spent moving, which is what the run-up is built from.
+   *
+   * Reset by standing still, and by anything that takes a soldier out of their
+   * stride — going down, mounting up, or being put back at a spawn.
+   */
+  runTicks: number;
   /** Lifetime counters, for the battle report. */
   kills: number;
   deaths: number;
