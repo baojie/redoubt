@@ -499,8 +499,13 @@ export function fitBoxUvs(
 
 // ---------------------------------------------------------------------------
 
-/** A small deterministic generator, so every client draws the same wall. */
-function seededRandom(seed: number): () => number {
+/**
+ * A small deterministic generator, so every client draws the same wall.
+ *
+ * Exported because the ground is drawn the same way and there is no sense in
+ * two generated-surface files disagreeing about what "the same seed" means.
+ */
+export function seededRandom(seed: number): () => number {
   let state = (seed | 0) >>> 0;
   return () => {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
