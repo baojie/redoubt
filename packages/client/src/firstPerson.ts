@@ -185,7 +185,16 @@ export function steerFromCamera(
 
   // Screen forward is -y in the input convention; map it onto the aim.
   const forward = { x: Math.cos(yaw), y: Math.sin(yaw) };
-  const right = { x: -forward.y, y: forward.x };
+  // Forward turned a quarter *clockwise*. Yaw runs anticlockwise from east
+  // toward north, so the right hand is the negative rotation: (x, y) → (y, -x).
+  //
+  // This was the other way round, which is the left-hand direction, and A and D
+  // were inverted for it. It survived because the mistake is symmetric — the two
+  // keys still did opposite things and still felt like strafing, so nothing
+  // looked broken until someone checked which way they went. Facing north
+  // (yaw = π/2) forward is (0, 1) and the right hand must be east, (1, 0); the
+  // old expression gave (-1, 0), which is west.
+  const right = { x: forward.y, y: -forward.x };
   const dir = {
     x: forward.x * -input.y + right.x * input.x,
     y: forward.y * -input.y + right.y * input.x,
