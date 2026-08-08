@@ -172,25 +172,6 @@ if (autoJoin !== null) {
 
 const queuedIntents: Intent[] = [];
 
-/**
- * Throw a grenade.
- *
- * Bound here rather than in `InputState`'s action table because that file
- * belongs to another line of work at the moment; it should be folded in there,
- * alongside the other action keys, once that settles.
- *
- * `4` and not `G`: G is already enter/exit vehicle, and rebinding a key people
- * have been using is worse than picking a free one.
- */
-window.addEventListener("keydown", (event) => {
-  if (event.code !== "Digit4" || event.repeat) return;
-  const target = event.target as HTMLElement | null;
-  const tag = target?.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-  if (connection.world.self === null) return;
-  queuedIntents.push({ t: "throwGrenade" });
-});
-
 function actionToIntent(action: ActionKey): Intent | null {
   const simple = SIMPLE_ACTION_INTENTS[action];
   if (simple !== undefined) return simple;

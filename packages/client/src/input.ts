@@ -36,7 +36,8 @@ export type ActionKey =
   | "deploy"
   | "toggleView"
   | "toggleOverview"
-  | "toggleHelp";
+  | "toggleHelp"
+  | "throwGrenade";
 
 const MOVEMENT_KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD"]);
 
@@ -58,6 +59,9 @@ const ACTION_BINDINGS: Readonly<Record<string, ActionKey>> = {
   KeyM: "toggleOverview",
   Tab: "toggleView",
   Slash: "toggleHelp",
+  // `4` and not `G`: G is already enter/exit vehicle, and rebinding a key
+  // people have been using is worse than taking a free one.
+  Digit4: "throwGrenade",
 };
 
 /** Zoom limits, in metres per pixel. Tighter than 0.2 is uselessly close. */
@@ -233,4 +237,5 @@ export const SIMPLE_ACTION_INTENTS: Partial<Record<ActionKey, Intent>> = {
   placeFob: { t: "placeFob" },
   exitVehicle: { t: "exitVehicle" },
   giveUp: { t: "giveUp" },
+  throwGrenade: { t: "throwGrenade" },
 };

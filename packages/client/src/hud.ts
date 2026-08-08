@@ -132,13 +132,18 @@ export class Hud {
   private readonly supply = must("supply");
 
   /**
-   * Rounds, and what the optic is set to.
+   * Rounds, grenades, and what the optic is set to.
    *
    * The magnification is shown even when it changes nothing on screen — the
    * zoom only bites while aiming — because otherwise turning the ring from the
    * hip is a control with no feedback whatsoever, which is indistinguishable
    * from a broken one. At 1x it is left off: a readout that never varies is
    * furniture.
+   *
+   * Grenades are shown *including* while reloading, unlike everything else on
+   * this line. Mid-reload with a contact in front of you is precisely when the
+   * three in your pouch are the answer, and a count that vanishes exactly then
+   * is a count that is never read when it matters.
    */
   drawWeapon(self: SelfView | null, tick: number, magnification = 1): void {
     if (self === null || self.status !== "alive") {
@@ -149,11 +154,14 @@ export class Hud {
       magnification > 1
         ? `   <span style="color:var(--dim)">${magnification.toFixed(1)}x</span>`
         : "";
+    // Dim rather than a warning at zero: out of grenades is a fact to know, not
+    // an emergency the way a dry magazine is.
+    const grenades = `   <span style="color:var(--dim)">GRN ${self.grenades}</span>`;
     const reloading = self.reloadingUntilTick > tick;
     if (reloading) {
       const left = rules.ticksToSeconds(self.reloadingUntilTick - tick);
       this.weapon.innerHTML =
-        `<span class="warn">RELOADING ${left.toFixed(1)}s</span>` + optic;
+        `<span class="warn">RELOADING ${left.toFixed(1)}s</span>` + grenades + optic;
       return;
     }
     const dry = self.magazine === 0;
@@ -161,6 +169,7 @@ export class Hud {
       `<span class="${dry ? "warn" : ""}">${self.magazine}</span>` +
       ` / ${self.ammo}` +
       (dry ? "   <span class=\"warn\">R to reload</span>" : "") +
+      grenades +
       optic;
   }
 
@@ -172,6 +181,7 @@ export class Hud {
       "right   aim down sights (3D)",
       "wheel   optic zoom, while aiming (3D)",
       "R       reload        (3D)",
+      "4       throw a grenade",
       "F       revive a casualty",
       "Q       pick up / drop a casualty",
       "Tab     3D / map view",
