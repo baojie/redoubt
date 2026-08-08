@@ -24,6 +24,7 @@
 
 import * as THREE from "three";
 import { rules } from "@redoubt/core";
+import { fabricTexture, gloveTexture } from "./fabric.js";
 import { flashTexture } from "./flash.js";
 import { buildRifle, muzzleOffset, opticHeight } from "./rifle.js";
 
@@ -130,8 +131,17 @@ const FLASH_SIZE_VARIATION = 0.35;
  * the support hand forward on the handguard. Both are placed relative to the
  * receiver, so resizing the weapon moves the hands with it.
  */
-const SLEEVE_COLOUR = 0x4a5340;
-const GLOVE_COLOUR = 0x24262a;
+/**
+ * Sleeve and glove tints.
+ *
+ * Near-white now, not the old olive and near-black: `color` multiplies the map,
+ * and the textures already carry the colour — leaving the old values in
+ * multiplied olive by olive and produced a black tube. What is left is a gentle
+ * darkening, because a plain white multiplier let both surfaces come out paler
+ * than the soldier's own fatigues and the gloves read as light grey blocks.
+ */
+const SLEEVE_COLOUR = 0xc8cdbe;
+const GLOVE_COLOUR = 0x74767c;
 const FOREARM_LENGTH_M = 0.26;
 const FOREARM_RADIUS_M = 0.027;
 const HAND_SIZE_M = 0.072;
@@ -206,8 +216,30 @@ export class Viewmodel {
    * all three, and it sits proud of the weapon where it can be seen.
    */
   private addHands(): void {
-    const sleeve = new THREE.MeshStandardMaterial({ color: SLEEVE_COLOUR, roughness: 0.9 });
-    const glove = new THREE.MeshStandardMaterial({ color: GLOVE_COLOUR, roughness: 0.75 });
+    // Textured rather than flat. The hands are in the corner of every single
+    // frame, so they are the surface a player has the most time to notice is
+    // untextured — and against a textured soldier and a textured world, they
+    // were the one thing left that looked like placeholder geometry.
+    //
+    // The same canvas doubles as a bump map: it costs nothing extra and turns
+    // the weave and the stitching from a printed pattern into something the
+    // light catches, which is most of the difference at this distance.
+    const cloth = fabricTexture();
+    const sleeve = new THREE.MeshStandardMaterial({
+      color: SLEEVE_COLOUR,
+      map: cloth,
+      bumpMap: cloth,
+      bumpScale: 0.004,
+      roughness: 0.95,
+    });
+    const leather = gloveTexture();
+    const glove = new THREE.MeshStandardMaterial({
+      color: GLOVE_COLOUR,
+      map: leather,
+      bumpMap: leather,
+      bumpScale: 0.006,
+      roughness: 0.7,
+    });
     const up = new THREE.Vector3(0, 1, 0);
 
     const arm = (hand: THREE.Vector3, shoulder: THREE.Vector3, thumbSide: number): void => {
