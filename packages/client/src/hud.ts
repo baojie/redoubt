@@ -170,8 +170,11 @@ export class Hud {
       "WASD    drive, when mounted",
       "Z / C   load / unload supply",
       "X       give up when downed",
-      "M       whole-map view",
-      "wheel   zoom",
+      // Both are the top-down camera's, and do nothing in first person. Said
+      // out loud because an unqualified line here reads as a promise, and a key
+      // that quietly does nothing reads as a broken client.
+      "M       whole-map view  (map)",
+      "wheel   zoom          (map)",
       "/       hide this",
     ].join("\n");
   }

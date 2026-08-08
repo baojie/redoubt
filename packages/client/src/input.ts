@@ -121,14 +121,19 @@ export class InputState {
 
     canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
-    canvas.addEventListener(
+    // On the window rather than on the map canvas.
+    //
+    // That canvas is `display: none` for as long as the first-person view is
+    // up, and a hidden element receives no mouse events at all — so a wheel
+    // handler bound to it is silently dead in 3D, which is exactly how this
+    // behaved. Bound here, the wheel always adjusts the map camera; which view
+    // is on screen decides when you see it, not whether the input arrives.
+    window.addEventListener(
       "wheel",
       (event) => {
-        const factor = event.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-        this.camera.metresPerPixel = Math.min(
-          MAX_METRES_PER_PIXEL,
-          Math.max(MIN_METRES_PER_PIXEL, this.camera.metresPerPixel * factor),
-        );
+        // Ctrl/Cmd+wheel is the browser's own zoom, and not ours to take.
+        if (event.ctrlKey || event.metaKey) return;
+        applyZoom(this.camera, event.deltaY);
         event.preventDefault();
       },
       { passive: false },
@@ -169,6 +174,27 @@ export class InputState {
     const py = event.clientY - rect.top;
     return screenToWorld(this.camera, canvas, px, py);
   }
+}
+
+/**
+ * One notch of the wheel.
+ *
+ * Pure and exported because the listener that drives it cannot be exercised
+ * without a DOM, while the two parts that were actually wrong — the clamp and
+ * the handoff out of overview — are worth pinning down in a test.
+ *
+ * Scrolling drops the whole-map view. Overview fits the map to the window and
+ * ignores `metresPerPixel` entirely, so without this the wheel is a control
+ * that does nothing at all while M is on: not a mode, just a broken input.
+ */
+export function applyZoom(camera: Camera, deltaY: number): void {
+  if (deltaY === 0) return;
+  camera.overview = false;
+  const factor = deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+  camera.metresPerPixel = Math.min(
+    MAX_METRES_PER_PIXEL,
+    Math.max(MIN_METRES_PER_PIXEL, camera.metresPerPixel * factor),
+  );
 }
 
 /** Effective scale, accounting for overview mode fitting the whole map. */
