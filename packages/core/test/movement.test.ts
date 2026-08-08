@@ -26,8 +26,18 @@ describe("steering", () => {
     const seconds = 3;
     h.run(rules.secondsToTicks(seconds) - 1);
 
+    // Speed is no longer one number — it ramps as the run-up builds — so the
+    // expected distance is summed from the same curve the movement system uses
+    // rather than restated as a literal. Still an exact check: the point is
+    // that a soldier travels precisely what the rules say, not roughly.
+    let expected = 0;
+    // Sixty ticks of movement, not fifty-nine: the steer command arrives on a
+    // tick that also moves the soldier, and `run` adds the rest.
+    for (let tick = 1; tick <= rules.secondsToTicks(seconds); tick++) {
+      expected += rules.PLAYER_SPEED_M_PER_TICK * rules.runSpeedMultiplier(tick);
+    }
     const travelled = distance(player.pos, OPEN_GROUND);
-    expect(travelled).toBeCloseTo(rules.PLAYER_SPEED_MPS * seconds, 1);
+    expect(travelled).toBeCloseTo(expected, 6);
     expect(player.pos.y).toBeCloseTo(OPEN_GROUND.y, 6);
   });
 
@@ -197,10 +207,20 @@ describe("cover", () => {
     // Into the wall and along it at the same time.
     h.tick([{ t: "steer", player: player.id, dir: { x: 1, y: 1 } }]);
     const startX = player.pos.x;
-    h.run(rules.secondsToTicks(5));
+
+    // Two seconds, not five. A soldier now runs roughly 30 m in five seconds
+    // and simply passes the end of the wall, after which there is nothing left
+    // to slide along and the assertion below stops meaning anything. Checked
+    // every tick rather than only at the end, so the wall cannot be crossed and
+    // re-crossed in between.
+    for (let i = 0; i < rules.secondsToTicks(2); i++) {
+      h.tick();
+      expect(player.pos.y).toBeLessThan(wall.y - wall.halfDepth);
+    }
 
     expect(player.pos.x).toBeGreaterThan(startX + 5);
-    expect(player.pos.y).toBeLessThan(wall.y - wall.halfDepth);
+    // Still beside the wall, so the check above was actually testing something.
+    expect(player.pos.x).toBeLessThan(wall.x + wall.halfWidth);
   });
 
   it("never leaves a soldier inside a building", () => {

@@ -71,8 +71,12 @@ describe("map zoom", () => {
 
 describe("optic magnification", () => {
   it("magnifies on wheel up, matching the map view's direction", () => {
-    expect(stepMagnification(1, -1)).toBeGreaterThan(1);
-    expect(stepMagnification(2, 1)).toBeLessThan(2);
+    // Anchored to the rules' own range rather than to the literals 1 and 2:
+    // the optic's minimum is 2.5 now, and a test that hard-codes where the
+    // range starts has to be edited every time the scope is retuned.
+    const min = rules.OPTIC_MIN_MAGNIFICATION;
+    expect(stepMagnification(min, -1)).toBeGreaterThan(min);
+    expect(stepMagnification(min * 1.5, 1)).toBeLessThan(min * 1.5);
   });
 
   it("never exceeds the bound the rules set", () => {
