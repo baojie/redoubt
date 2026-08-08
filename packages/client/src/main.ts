@@ -18,7 +18,7 @@ import { rules, type TeamId } from "@redoubt/core";
 import type { Intent } from "@redoubt/protocol";
 import { FirstPersonInput, steerFromCamera } from "./firstPerson.js";
 import { Hud, type DeployOption } from "./hud.js";
-import { InputState, SIMPLE_ACTION_INTENTS, type ActionKey } from "./input.js";
+import { applyZoom, InputState, SIMPLE_ACTION_INTENTS, type ActionKey } from "./input.js";
 import { Connection } from "./net.js";
 import { normaliseSteer } from "./prediction.js";
 import { render } from "./render.js";
@@ -48,6 +48,28 @@ let firstPersonView = true;
 
 input.attach(canvas);
 hud.drawHelp();
+
+/**
+ * The wheel means different things in the two views, so it is routed here —
+ * this is where which view is up is actually known.
+ *
+ * It used to be handled inside `InputState`, bound to the map canvas. That
+ * canvas is `display: none` for as long as the first-person view is up, and a
+ * hidden element receives no mouse events at all, so the wheel was simply dead
+ * in 3D. Routing it from here means each view gets the control it can use: the
+ * optic's zoom ring in first person, the map's scale on the map.
+ */
+window.addEventListener(
+  "wheel",
+  (event) => {
+    // Ctrl/Cmd+wheel is the browser's own zoom, and not ours to take.
+    if (event.ctrlKey || event.metaKey) return;
+    if (firstPersonView) firstPerson.adjustOptic(event.deltaY);
+    else applyZoom(input.camera, event.deltaY);
+    event.preventDefault();
+  },
+  { passive: false },
+);
 
 // ---------------------------------------------------------------------------
 // Joining
@@ -441,7 +463,7 @@ function frame(): void {
   if (firstPersonView && scene !== null) {
     firstPerson.settle(dt);
     hud.drawSupply(world, predictedPosition());
-    scene.setAiming(world.self?.aiming ?? false, dt);
+    scene.setAiming(world.self?.aiming ?? false, dt, firstPerson.magnification);
     // Sit up in the cab when mounted; a driver's eyeline is not a rifleman's.
     const vehicle = world.self?.vehicle == null ? null : world.vehicles.get(world.self.vehicle);
     const eyeHeight =
@@ -476,7 +498,7 @@ function frame(): void {
       }
     }
     scene.render(dt);
-    hud.drawWeapon(world.self, world.tick);
+    hud.drawWeapon(world.self, world.tick, firstPerson.magnification);
     hud.drawScoreboard(world, welcome.team as TeamId, welcome.lane.name);
     hud.drawStatus(world.self, world);
     hud.drawNetgraph(connection.stats(renderTick), world.tick);

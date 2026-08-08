@@ -121,23 +121,9 @@ export class InputState {
 
     canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
-    // On the window rather than on the map canvas.
-    //
-    // That canvas is `display: none` for as long as the first-person view is
-    // up, and a hidden element receives no mouse events at all — so a wheel
-    // handler bound to it is silently dead in 3D, which is exactly how this
-    // behaved. Bound here, the wheel always adjusts the map camera; which view
-    // is on screen decides when you see it, not whether the input arrives.
-    window.addEventListener(
-      "wheel",
-      (event) => {
-        // Ctrl/Cmd+wheel is the browser's own zoom, and not ours to take.
-        if (event.ctrlKey || event.metaKey) return;
-        applyZoom(this.camera, event.deltaY);
-        event.preventDefault();
-      },
-      { passive: false },
-    );
+    // The wheel is deliberately not bound here. It means one thing in the map
+    // view and another in first person, so the client routes it from where it
+    // knows which view is up, and calls `applyZoom` below for this one.
   }
 
   /** The current movement direction, unnormalised. Screen axes: y grows down. */

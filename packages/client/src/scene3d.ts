@@ -156,8 +156,12 @@ export class Scene3D {
    * Eased rather than snapped: an instant FOV change reads as a teleport, and
    * the ease is also what sells the weight of bringing a rifle up.
    */
-  setAiming(aiming: boolean, dt: number): void {
-    const target = aiming ? ADS_FOV_DEG : HIP_FOV_DEG;
+  setAiming(aiming: boolean, dt: number, magnification = 1): void {
+    // Magnification divides the sight picture, and only the sight picture: from
+    // the hip the field of view is whatever the naked eye gives, however far
+    // the zoom ring has been turned. Anything else would be a free telescope
+    // that costs nothing to use, which is not what an optic is.
+    const target = aiming ? ADS_FOV_DEG / magnification : HIP_FOV_DEG;
     const rate = Math.min(1, dt * ADS_EASE_PER_S);
     this.camera.fov += (target - this.camera.fov) * rate;
     this.camera.updateProjectionMatrix();

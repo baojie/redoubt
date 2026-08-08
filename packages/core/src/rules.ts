@@ -595,6 +595,19 @@ export const BODY_HALF_HEIGHT_M = 0.9;
  */
 export const SPAWN_SCATTER_RADIUS_M = 3;
 
+/**
+ * Bounds on a rifle optic's magnification.
+ *
+ * The client picks the magnification and narrows its own field of view, which
+ * is a rendering matter — but *how far* it may narrow decides how much of the
+ * map a player can read at 200 m, and that is a balance question, so the bound
+ * lives here with the other balance numbers rather than in the renderer.
+ */
+export const OPTIC_MIN_MAGNIFICATION = 1;
+export const OPTIC_MAX_MAGNIFICATION = 4;
+/** Multiplier per notch of the wheel. */
+export const OPTIC_MAGNIFICATION_STEP = 1.15;
+
 // ---------------------------------------------------------------------------
 // Map
 // ---------------------------------------------------------------------------

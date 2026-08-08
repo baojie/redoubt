@@ -131,22 +131,37 @@ export class Hud {
 
   private readonly supply = must("supply");
 
-  drawWeapon(self: SelfView | null, tick: number): void {
+  /**
+   * Rounds, and what the optic is set to.
+   *
+   * The magnification is shown even when it changes nothing on screen — the
+   * zoom only bites while aiming — because otherwise turning the ring from the
+   * hip is a control with no feedback whatsoever, which is indistinguishable
+   * from a broken one. At 1x it is left off: a readout that never varies is
+   * furniture.
+   */
+  drawWeapon(self: SelfView | null, tick: number, magnification = 1): void {
     if (self === null || self.status !== "alive") {
       this.weapon.textContent = "";
       return;
     }
+    const optic =
+      magnification > 1
+        ? `   <span style="color:var(--dim)">${magnification.toFixed(1)}x</span>`
+        : "";
     const reloading = self.reloadingUntilTick > tick;
     if (reloading) {
       const left = rules.ticksToSeconds(self.reloadingUntilTick - tick);
-      this.weapon.innerHTML = `<span class="warn">RELOADING ${left.toFixed(1)}s</span>`;
+      this.weapon.innerHTML =
+        `<span class="warn">RELOADING ${left.toFixed(1)}s</span>` + optic;
       return;
     }
     const dry = self.magazine === 0;
     this.weapon.innerHTML =
       `<span class="${dry ? "warn" : ""}">${self.magazine}</span>` +
       ` / ${self.ammo}` +
-      (dry ? "   <span class=\"warn\">R to reload</span>" : "");
+      (dry ? "   <span class=\"warn\">R to reload</span>" : "") +
+      optic;
   }
 
   drawHelp(): void {
@@ -155,6 +170,7 @@ export class Hud {
       "mouse   look          (3D)",
       "click   fire          (3D)",
       "right   aim down sights (3D)",
+      "wheel   optic zoom, while aiming (3D)",
       "R       reload        (3D)",
       "F       revive a casualty",
       "Q       pick up / drop a casualty",

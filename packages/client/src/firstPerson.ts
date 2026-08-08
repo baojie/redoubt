@@ -27,6 +27,17 @@ export class FirstPersonInput {
   sensitivity = 1;
   locked = false;
 
+  /**
+   * Optic magnification, driven by the wheel.
+   *
+   * Applied only while aiming down the sights, because that is the only time
+   * you are looking through the optic — zooming with the naked eye is the
+   * free-vision cheat this deliberately is not. The bound comes from
+   * `rules.ts`: how far a player may magnify decides how much of the map they
+   * can read at range, and that is a balance number, not a rendering one.
+   */
+  magnification = rules.OPTIC_MIN_MAGNIFICATION;
+
   private firing = false;
   private reloadQueued = false;
   /** Right mouse held. */
@@ -90,6 +101,11 @@ export class FirstPersonInput {
     });
   }
 
+  /** Turn the optic's zoom ring by one notch of the wheel. */
+  adjustOptic(deltaY: number): void {
+    this.magnification = stepMagnification(this.magnification, deltaY);
+  }
+
   /** Snap to the server's aim. Used on spawn, when we have no better guess. */
   adopt(yaw: number, pitch: number): void {
     if (Number.isFinite(yaw)) this.yaw = yaw;
@@ -128,6 +144,23 @@ export class FirstPersonInput {
   get viewPitch(): number {
     return Math.min(MAX_PITCH, this.pitch + this.kick);
   }
+}
+
+/**
+ * One notch of the wheel on the zoom ring.
+ *
+ * Pure and exported for the same reason `applyZoom` is: constructing a
+ * `FirstPersonInput` needs a DOM, while the clamp is exactly the part worth
+ * a test. Wheel up magnifies, matching the map view where wheel up zooms in.
+ */
+export function stepMagnification(current: number, deltaY: number): number {
+  if (deltaY === 0) return current;
+  const factor =
+    deltaY > 0 ? 1 / rules.OPTIC_MAGNIFICATION_STEP : rules.OPTIC_MAGNIFICATION_STEP;
+  return Math.min(
+    rules.OPTIC_MAX_MAGNIFICATION,
+    Math.max(rules.OPTIC_MIN_MAGNIFICATION, current * factor),
+  );
 }
 
 /** How far the muzzle climbs per round, and how fast it comes back down. */

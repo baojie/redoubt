@@ -1,13 +1,16 @@
 /**
- * Map-view zoom.
+ * What the wheel does, in both views.
  *
- * The wheel listener itself needs a DOM and is not tested here. What is tested
- * is the part that was wrong: the wheel was bound to the map canvas, which is
- * hidden whenever the first-person view is up, and it did nothing at all while
- * the whole-map view was on because overview ignores the zoom entirely.
+ * The listener itself needs a DOM and is not tested here. What is tested is
+ * what was wrong: the wheel was bound to the map canvas, which is hidden
+ * whenever the first-person view is up, and it did nothing at all while the
+ * whole-map view was on because overview ignores the zoom entirely — plus the
+ * bound on the optic that replaced the dead control in 3D.
  */
 
 import { describe, expect, it } from "vitest";
+import { rules } from "@redoubt/core";
+import { stepMagnification } from "../src/firstPerson.js";
 import { applyZoom, effectiveScale, type Camera } from "../src/input.js";
 
 const DEFAULT_METRES_PER_PIXEL = 0.55;
@@ -63,5 +66,30 @@ describe("map zoom", () => {
     expect(wide.overview).toBe(false);
     expect(effectiveScale(wide, CANVAS, 1000)).not.toBe(fitted);
     expect(effectiveScale(wide, CANVAS, 1000)).toBe(wide.metresPerPixel);
+  });
+});
+
+describe("optic magnification", () => {
+  it("magnifies on wheel up, matching the map view's direction", () => {
+    expect(stepMagnification(1, -1)).toBeGreaterThan(1);
+    expect(stepMagnification(2, 1)).toBeLessThan(2);
+  });
+
+  it("never exceeds the bound the rules set", () => {
+    // The whole reason the bound lives in rules.ts: this is the number that
+    // decides how much of the map a player can read at range.
+    let magnification = rules.OPTIC_MIN_MAGNIFICATION;
+    for (let i = 0; i < 100; i++) magnification = stepMagnification(magnification, -1);
+    expect(magnification).toBe(rules.OPTIC_MAX_MAGNIFICATION);
+  });
+
+  it("never drops below 1x, so the wheel cannot shrink the world", () => {
+    let magnification = rules.OPTIC_MAX_MAGNIFICATION;
+    for (let i = 0; i < 100; i++) magnification = stepMagnification(magnification, 1);
+    expect(magnification).toBe(rules.OPTIC_MIN_MAGNIFICATION);
+  });
+
+  it("treats a zero delta as no input", () => {
+    expect(stepMagnification(2.5, 0)).toBe(2.5);
   });
 });
