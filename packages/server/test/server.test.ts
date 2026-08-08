@@ -32,12 +32,17 @@ interface Harness {
 
 const running: GameServer[] = [];
 
-function startServer(options: Partial<{ seed: number; playersPerTeam: number }> = {}): Harness {
+function startServer(
+  options: Partial<{ seed: number; playersPerTeam: number; intermissionSeconds: number }> = {},
+): Harness {
   const port = nextPort++;
   const server = new GameServer({
     port,
     seed: options.seed ?? 42,
     playersPerTeam: options.playersPerTeam ?? rules.SQUAD_MAX_SIZE,
+    ...(options.intermissionSeconds === undefined
+      ? {}
+      : { intermissionSeconds: options.intermissionSeconds }),
   });
   server.listen();
   running.push(server);
@@ -108,6 +113,23 @@ class TestClient {
 /** Let the event loop deliver socket traffic. */
 function settle(ms = 40): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Wait until a client has actually stopped receiving.
+ *
+ * `advanceTicks` runs hundreds of ticks synchronously, so the server can hand
+ * the socket far more than it has delivered by the time the call returns. A
+ * fixed sleep is a guess, and when it guesses low the leftover bytes are
+ * counted against whatever window opens next — which is how the bandwidth
+ * assertion came to fail intermittently at seven times the real figure.
+ */
+async function quiesce(client: TestClient, quietMs = 60): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const before = client.bytesReceived;
+    await settle(quietMs);
+    if (client.bytesReceived === before) return;
+  }
 }
 
 /**
@@ -374,12 +396,12 @@ describe("snapshots", () => {
 
     // Let the match get going so people are actually moving and fighting.
     advanceTicks(server, rules.STAGING_TICKS + rules.secondsToTicks(20));
-    await settle(120);
+    await quiesce(client);
 
     const before = client.bytesReceived;
     const seconds = 10;
     advanceTicks(server, rules.secondsToTicks(seconds));
-    await settle(200);
+    await quiesce(client);
 
     const kbPerSecond = (client.bytesReceived - before) / seconds / 1024;
     // PLAN §4 budgets under 30 KB/s per client at this scale. We currently sit
@@ -405,6 +427,55 @@ describe("match lifecycle", () => {
     server.advanceForTest(61);
     server.advanceForTest(22);
     expect(server.match.state.tick).toBe(before + 2);
+  });
+
+  it("starts a new match after one ends", () => {
+    // The intermission cannot be scheduled against the simulation clock: a
+    // finished match stops advancing it, so "restart at tick N" never arrives
+    // and the server sits on a corpse forever. It used to do exactly that.
+    const intermission = 2;
+    const { server } = startServer({ intermissionSeconds: intermission });
+    server.match.state.teams[1].tickets = 0;
+
+    advanceTicks(server, 4);
+    expect(server.match.state.phase).toBe("finished");
+
+    // Still inside the intermission: nothing should have restarted yet.
+    advanceTicks(server, rules.secondsToTicks(intermission) - 8);
+    expect(server.match.state.phase).toBe("finished");
+
+    advanceTicks(server, 16);
+
+    // A restart is visible as a match that is playable again on full tickets,
+    // not as a tick number: ticks are what froze in the first place.
+    expect(server.match.state.phase).not.toBe("finished");
+    expect(server.match.state.teams[0].tickets).toBe(rules.START_TICKETS);
+    expect(server.match.state.teams[1].tickets).toBe(rules.START_TICKETS);
+  });
+
+  it("keeps sending snapshots while a finished match waits to restart", () => {
+    // The cadence used to be `state.tick % 2`, and that clock stops dead when
+    // the match does — leaving a connecting client with no snapshot at all.
+    const { server } = startServer({ intermissionSeconds: 4 });
+    server.match.state.teams[1].tickets = 0;
+    advanceTicks(server, 3);
+    expect(server.match.state.phase).toBe("finished");
+
+    const frozenTick = server.match.state.tick;
+    let sent = 0;
+    const spy = server as unknown as { broadcastSnapshots: () => void };
+    const real = spy.broadcastSnapshots.bind(server);
+    spy.broadcastSnapshots = () => {
+      sent++;
+      real();
+    };
+
+    const ticks = 20;
+    advanceTicks(server, ticks);
+
+    expect(server.match.state.tick).toBe(frozenTick);
+    // Half the ticks, whichever parity the simulation happened to stop on.
+    expect(sent).toBe(ticks / 2);
   });
 
   it("skips time rather than spiralling after a long stall", () => {

@@ -86,7 +86,28 @@ export class GameServer {
   private timer: NodeJS.Timeout | null = null;
   private lastTickAt = 0;
   private nextSessionId = 1;
-  private restartAtTick: number | null = null;
+  /**
+   * Ticks left in the intermission, counted down by the loop rather than read
+   * off the simulation clock.
+   *
+   * The simulation *stops* when a match finishes — `step` returns immediately
+   * and `state.tick` freezes. An intermission scheduled as "restart at tick
+   * N + 300" therefore never arrives, and the server sits on a finished match
+   * forever. It did exactly that: found after a match ended and the next one
+   * never started.
+   */
+  private intermissionLeft: number | null = null;
+
+  /**
+   * Ticks the *loop* has run, which is not the same as `state.tick`.
+   *
+   * The snapshot cadence is a transport concern and has to keep its own clock.
+   * Keying it off the simulation clock breaks the moment that clock stops: a
+   * match frozen on an even tick re-broadcasts every tick, and one frozen on an
+   * odd tick broadcasts nothing at all, so a client that connects during the
+   * intermission is told nothing and sits looking at an empty world.
+   */
+  private loopTicks = 0;
   private seed: number;
 
   /** Rolling bandwidth accounting, reset each stats window. */
@@ -255,7 +276,8 @@ export class GameServer {
       this.match.submit(session.drain());
     }
 
-    if (this.match.state.tick % SNAPSHOT_INTERVAL_TICKS === 0) this.broadcastSnapshots();
+    if (this.loopTicks % SNAPSHOT_INTERVAL_TICKS === 0) this.broadcastSnapshots();
+    this.loopTicks++;
     this.broadcastEvents(events);
     this.maybeRestart(events);
     this.reportStats();
@@ -327,13 +349,14 @@ export class GameServer {
     );
 
     if (events.some((e) => e.t === "matchEnded")) {
-      this.restartAtTick = this.match.state.tick + intermissionTicks;
+      this.intermissionLeft = intermissionTicks;
       return;
     }
-    if (this.restartAtTick === null) return;
-    if (this.match.state.tick < this.restartAtTick) return;
+    if (this.intermissionLeft === null) return;
+    this.intermissionLeft--;
+    if (this.intermissionLeft > 0) return;
 
-    this.restartAtTick = null;
+    this.intermissionLeft = null;
     // Derive the next seed from the current one so a server's whole session
     // stays reproducible from the seed it was started with.
     this.seed = (this.seed * 1103515245 + 12345) >>> 0;

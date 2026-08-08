@@ -117,7 +117,12 @@ export class Match {
     for (const command of commands) this.pending.push(command);
   }
 
-  /** Advance exactly one tick. Returns the events it produced. */
+  /**
+   * Advance exactly one tick. Returns the events it produced.
+   *
+   * Still called after the match finishes: the simulation itself no-ops, but
+   * the caller needs the beat to run its intermission countdown on.
+   */
   step(): GameEvent[] {
     const botCommands = decide(this.state, this.world, this.botMemory, {
       skip: this.humans,
