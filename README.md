@@ -4,8 +4,8 @@ A tactical team-shooter built rules-first, inspired by Squad and Project Reality
 
 The premise, from `PLAN.md`: what makes this genre work is not gunplay, it is that
 **respawns are a scarce resource and logistics decide who has them.** So the
-rules engine comes first and the graphics come last. Right now there are no
-graphics at all — and the game is already playable enough to measure.
+rules engine comes first and the graphics come last. The rules engine is the
+whole game; the first-person client is a view into it.
 
 ## Where it is
 
@@ -29,13 +29,44 @@ playing; the rest of both teams stay under bot control.
 
 It opens in first person: click to capture the mouse, WASD to move, mouse to
 look, left click to fire, **right click to aim down the sights**, `R` to
-reload. Stand over a downed teammate and `F` revives them, `Q` drags them
-somewhere safer first. `Tab` switches to the top-down map view — which is the
-whole M2 client, still running on the same connection, not a minimap. `/` for
-the full key list.
+reload, `4` to throw one of your three grenades. Stand over a downed teammate
+and `F` revives them, `Q` drags them somewhere safer first. `Tab` switches to
+the top-down map view — which is the whole M2 client, still running on the same
+connection, not a minimap. `/` for the full key list.
 
 If your machine has no WebGL the page falls back to the map view rather than
 breaking; the map view is a complete client on its own.
+
+### Play it with friends on a LAN
+
+Everyone joins the same server; each browser tab is a player, and the server
+puts people on whichever team is emptier.
+
+```bash
+./run.sh play
+```
+
+Then find your machine's LAN address (`ip addr`, or the "Network" lines vite
+prints when it starts), and have friends open:
+
+```
+http://<your-LAN-ip>:5173/
+```
+
+The page binds all interfaces (`host: true` in `vite.config.ts`) and the game
+server listens on `:8787` on all interfaces too. The client derives the server
+URL from the page's own hostname, so a friend who opens your IP connects back
+to your machine automatically — no per-player setup. The join screen takes a
+name; there is no team picker yet, the server balances sides for you.
+
+To point at a different server (e.g. a remote box), override it:
+
+```
+http://<host>:5173/?server=ws://<game-server>:8787
+```
+
+The two TCP ports that must be open in the host's firewall are **5173** (page)
+and **8787** (game server).
 
 ## Watch it instead
 
@@ -69,7 +100,7 @@ packages/
   bots/       decision layer, split by role. reads state, returns commands
   protocol/   the wire format, shared by server and client and owned by neither
   server/     authoritative 20Hz simulation host
-  client/     Canvas 2D top-down view. predicts, never decides
+  client/     Three.js first-person client + top-down map view. predicts, never decides
   sim/        headless match runner, battle report, batch balance statistics
 ```
 
@@ -102,6 +133,10 @@ the invariants that keep it that way.
   fly at 780 m/s, drop under gravity, and are stopped by terrain. Where a round
   goes is geometry, not a dice roll. Magazines, reloads and a reserve that only
   logistics can refill.
+- **Grenades**: every soldier carries three, arcing and bouncing off geometry,
+  and they come back as an actual explosion in the snapshot — visible, audible,
+  and fatal in the right room. Fuse is long enough to cook, short enough to
+  punish holding.
 - **Suppression**: rounds passing close rattle a soldier, widening their own
   dispersion and darkening their view until it decays. PLAN §5 rates this above
   weapon models, and it is the reason a machine gun is useful without hitting
@@ -143,12 +178,12 @@ disagree about movement, which is a bug rather than a network condition.
 
 - **Deep raids barely work, and that is a fact about the combat model.** Bots
   now detach a raiding party to hunt enemy radios, and it lands a kill in about
-  1.4% of matches. The reason it is not higher: the M0/M1 combat stand-in has
-  no cover, no concealment and no suppression, so hit chance is purely a
-  function of range and the last 200 m to a defended radio is an open-field
-  fight against equal numbers. There is no mechanism by which infiltration
-  could work yet. M3's suppression should change this, and the FOB-lifetime
-  figures should be re-read then; today they are thin rather than wrong.
+  1.4% of matches. That figure predates M3 — cover, concealment and suppression
+  all exist now, and the raid numbers have not been re-read since. The last
+  200 m to a defended radio is still open ground against equal numbers, and
+  suppression helps the defender hold ground as much as it helps the assault.
+  The FOB-lifetime figures should be re-read once real fire teams land; today
+  they are thin rather than wrong.
 - Vehicles have no interior: the one you are riding in is hidden rather than
   modelled, and passengers cannot shoot out.
 - JSON on the wire. Fine at this scale, and the first thing to change if the
@@ -156,12 +191,13 @@ disagree about movement, which is a bug rather than a network condition.
 
 ## Assets
 
-One art asset: the soldier model, `RiggedFigure` from the Khronos glTF sample
-set, CC-BY 4.0. See `ATTRIBUTION.md` — the licence requires attribution and
-that file is why it exists. Everything else, terrain included, is generated at
-runtime from the match seed.
+Four small models, all from the Quaternius library on Poly Pizza: the soldier,
+the supply truck, the armoured pickup, and the rifle every soldier carries. The
+soldier is CC-BY 3.0 — attribution is required, and that is what `ATTRIBUTION.md`
+exists for; the rest are CC0. Everything else, terrain included, is generated
+at runtime from the match seed.
 
-The model is optional: if it fails to load the client draws soldiers from
+The models are optional: if one fails to load the client draws that thing from
 primitives instead. A missing art asset should cost fidelity, not the ability
 to see the enemy.
 
@@ -171,3 +207,7 @@ Game mechanics, rules and numbers are not copyrightable, and the design table in
 `PLAN.md` is transcribed from publicly documented conventions of the genre. No
 names, logos, maps, models, textures, audio, UI art or code from any commercial
 game are used here. The map, its place names and the project name are original.
+
+## Changelog
+
+See `CHANGELOG.md` for the full history.
