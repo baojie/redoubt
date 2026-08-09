@@ -109,22 +109,29 @@ joinButton.addEventListener("click", () => {
       // The 2D view is a complete client on its own — it was the whole of M2 —
       // so a machine that cannot do 3D can still play.
       try {
-        scene = new Scene3D(
+        const nextScene = new Scene3D(
           scene3dCanvas,
           welcome.terrainSeed,
           [welcome.map.mainBases[0], welcome.map.mainBases[1]],
           welcome.map.sizeM,
         );
-        scene.buildCover(welcome.map.cover);
+        scene = nextScene;
+        nextScene.buildCover(welcome.map.cover);
         // Loads in the background; bodies drawn before it lands use the
         // primitive figure and swap over as they are recreated.
-        void scene.soldiers.load().then((ok) => {
+        void nextScene.soldiers.load().then((ok) => {
           if (!ok) hud.note("soldier model unavailable — using simple figures");
         });
         // Same deal for the vehicles: they load in the background and hulls
         // created before they land keep the boxes until they are recreated.
-        void scene.vehicles.load().then((ok) => {
+        void nextScene.vehicles.load().then((ok) => {
           if (!ok) hud.note("vehicle models unavailable — using simple hulls");
+        });
+        // And for the rifle: it loads in the background and the player's own
+        // weapon and every slung rifle swap over the moment it lands.
+        void nextScene.rifles.load().then((ok) => {
+          if (ok) nextScene.viewmodel.useRifleModel();
+          else hud.note("rifle model unavailable — using the primitive rifle");
         });
       } catch (error) {
         scene = null;

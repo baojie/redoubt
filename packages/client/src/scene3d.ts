@@ -23,6 +23,7 @@ import { GrassField } from "./grassField.js";
 import { applyMacroVariation, buildGroundSurface, groundTint } from "./groundTexture.js";
 import { buildCoverSurfaces, fitBoxUvs, type Surface } from "./buildingTextures.js";
 import { SoldierModel, type SoldierRig } from "./soldierModel.js";
+import { RifleModels } from "./rifleModel.js";
 import { ScopeView } from "./scopeView.js";
 import { VehicleModels, type VehicleRig } from "./vehicleModel.js";
 import { Viewmodel } from "./viewmodel.js";
@@ -150,6 +151,8 @@ export class Scene3D {
   private readonly wheelAngle = new Map<number, number>();
   private readonly lastVehiclePos = new Map<number, { x: number; y: number }>();
   readonly vehicles = new VehicleModels();
+  /** The real rifle, shared by the player's viewmodel and every soldier. */
+  readonly rifles = new RifleModels();
   private readonly tracers: Tracer[] = [];
   private readonly tracerLines: THREE.LineSegments;
   private readonly enemyTracerLines: THREE.LineSegments;
@@ -178,7 +181,9 @@ export class Scene3D {
     this.scene.fog = new THREE.Fog(SKY, FOG_NEAR, FOG_FAR);
 
     this.camera = new THREE.PerspectiveCamera(HIP_FOV_DEG, 1, 0.1, VIEW_DISTANCE_M);
-    this.viewmodel = new Viewmodel(this.camera);
+    this.viewmodel = new Viewmodel(this.camera, this.rifles);
+    // The slung rifle on a soldier is the same weapon the player holds.
+    this.soldiers.rifles = this.rifles;
     // The camera is not in the scene graph by default, and a child of an
     // unattached camera never gets its world matrix updated — so the weapon
     // would sit at the origin, a kilometre away, and never be seen.

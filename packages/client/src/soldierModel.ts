@@ -32,6 +32,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { rules } from "@redoubt/core";
 import { buildRifle } from "./rifle.js";
+import { RifleModels } from "./rifleModel.js";
 
 const MODEL_URL = "/models/Soldier.glb";
 
@@ -102,8 +103,9 @@ const GAIT_FADE_S = 0.15;
  * air. It is bolted to the wrist bone rather than posed separately, which is
  * what makes it follow every clip for free.
  *
- * The same `buildRifle` the player holds, in its cheap form: at the range you
- * see other soldiers, a trigger guard is not worth the draw call.
+ * The same weapon the player holds — the shared real model once it loads,
+ * primitives until then. A slung rifle that changes shape when its owner picks
+ * it up is exactly the mismatch `rifle.ts` exists to prevent.
  */
 const SOLDIER_RIFLE_LENGTH_M = 0.72;
 const RIFLE_IN_HAND_OFFSET = { x: 0.02, y: -0.02, z: 0.06 };
@@ -121,6 +123,13 @@ export interface SoldierRig {
 }
 
 export class SoldierModel {
+  /**
+   * The shared real rifle, swapped in once it loads; null keeps primitives.
+   *
+   * Set by whoever owns the model, so a slung rifle on a soldier matches the
+   * one the player holds — the whole reason `rifle.ts` kept one shape for both.
+   */
+  rifles: RifleModels | null = null;
   private template: THREE.Object3D | null = null;
   private clips: THREE.AnimationClip[] = [];
   private scale = 1;
@@ -241,7 +250,12 @@ export class SoldierModel {
     const inverse = 1 / Math.max(boneScale.x, 1e-6);
 
     const material = new THREE.MeshStandardMaterial({ color: 0x24262a, roughness: 0.7 });
-    const rifle = buildRifle(SOLDIER_RIFLE_LENGTH_M * inverse, material, false);
+    const length = SOLDIER_RIFLE_LENGTH_M * inverse;
+    // The real rifle once it has loaded, primitives until then. The real one
+    // keeps its own material — the same weapon the player holds, not a team
+    // re-paint of it.
+    const rifle =
+      this.rifles?.instantiate(length) ?? buildRifle(length, material, false);
     rifle.position.set(
       RIFLE_IN_HAND_OFFSET.x * inverse,
       RIFLE_IN_HAND_OFFSET.y * inverse,

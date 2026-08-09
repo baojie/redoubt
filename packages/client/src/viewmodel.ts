@@ -27,7 +27,14 @@ import { rules } from "@redoubt/core";
 import { fabricTexture, gloveTexture } from "./fabric.js";
 import { flashTexture } from "./flash.js";
 import { buildHand, wristOffset } from "./hands.js";
-import { buildRifle, muzzleOffset, opticHeight } from "./rifle.js";
+import {
+  buildRifle,
+  muzzleOffset as primitiveMuzzleOffset,
+  opticHeight as primitiveOpticHeight,
+  scopeCentre,
+  mountScope,
+} from "./rifle.js";
+import { RifleModels } from "./rifleModel.js";
 
 /**
  * Overall rifle length, and how far out it is held.
@@ -68,7 +75,6 @@ const HIP_ROLL_RAD = 0.12;
  * crosshair.
  */
 const ADS_X = 0;
-const ADS_Y = -opticHeight(RIFLE_LENGTH_M);
 const ADS_Z = -0.58;
 
 /** How fast the weapon moves between carry and aim. */
@@ -155,14 +161,35 @@ const GLOVE_COLOUR = 0xc39c6d;
 const FOREARM_RADIUS_M = 0.027;
 
 /**
- * How far the elbow is pushed off the straight line from wrist to shoulder.
+ * Where each arm's elbow sits, in the weapon's own frame.
  *
- * Out to the side and down, which is where an elbow goes when the weapon is up
- * — and, more to the point, enough of a bend to be seen. At zero the arm is a
- * straight tube, and a straight tube is what "these are two iron pipes" means.
+ * These are placed the way the shoulders used to be *derived* and the result
+ * photographed as pipes. The old scheme took a shoulder point down behind the
+ * eye and pushed the elbow a small distance off the straight line to it; the
+ * projection put both elbows off the bottom of the screen (firing elbow at NDC
+ * (2.1, −2.7)), so what a player saw was a single straight tube from the hand
+ * to the frame edge. A straight tube of constant curvature is a pipe, and no
+ * weave on it changes that.
+ *
+ * So the elbow is placed by working backwards from the screen instead. Each
+ * point here was chosen so that in the hip-carry pose it projects to a visible
+ * bend — firing to NDC (1.05, −0.88), support to (0.05, −0.85) — with the
+ * forearm then running down to it at a clear angle and the depth chosen so the
+ * joint sits between the hand and the eye, which is where an elbow actually is.
  */
-const ELBOW_OUT_M = 0.075;
-const ELBOW_DROP_M = 0.035;
+const FIRING_ELBOW = new THREE.Vector3(0.139, -0.043, 0.217);
+const SUPPORT_ELBOW = new THREE.Vector3(-0.22, -0.062, 0.241);
+
+/**
+ * Where the upper arm runs to from the elbow.
+ *
+ * Below the elbow and back behind the eye, so the bicep segment is clipped by
+ * the near plane rather than ending in a visible flat lid — the same trick the
+ * old shoulder points played, but now with the bend *above* the frame instead
+ * of everything above it.
+ */
+const FIRING_SHOULDER = new THREE.Vector3(0.139, -0.423, 0.397);
+const SUPPORT_SHOULDER = new THREE.Vector3(-0.27, -0.392, 0.421);
 
 /** Across the knuckles. A hand, at the scale this rifle is drawn. */
 const HAND_WIDTH_M = 0.063;
@@ -196,13 +223,35 @@ const SUPPORT_ROLL_RAD = -Math.PI / 2 - 0.3;
 /** The firing hand rakes back a little, as a hand on a pistol grip does. */
 const FIRING_RAKE_RAD = 0.22;
 
+/**
+ * Where the real rifle's scope hangs, as a fraction of its length.
+ *
+ * The real model ships without a scope, so the primitive one is mounted on it —
+ * but at a height measured from the real receiver rather than the primitive
+ * proportions (see `opticAxisY`). The forward position is dialled in: centred
+ * over the carry handle, which is where a scope goes on this rifle.
+ */
+const GLB_SCOPE_CENTRE = -0.04;
+
+/** The barrel axis of the primitive rifle, where its flash and hand sit. */
+const PRIMITIVE_BARREL_Y = 0.01;
+
 /** How far the weapon drops out of view during a reload. */
 const RELOAD_DROP_M = 0.22;
 const RELOAD_ROLL_RAD = 0.5;
 
 export class Viewmodel {
   private readonly root = new THREE.Group();
-  private readonly rifle: THREE.Group;
+  /** The shared loader, so the real rifle can replace the primitive one. */
+  private readonly rifles: RifleModels;
+  /** The primitive rifle's material; the real rifle's scope borrows it too. */
+  private readonly rifleMaterial: THREE.Material;
+  /** The gun body: primitive at first, the real model after it loads. */
+  private rifle: THREE.Object3D;
+  /** Whether the real model has already replaced the primitive rifle. */
+  private glb = false;
+  /** Everything the hands drew, so they can be taken down on a swap. */
+  private readonly handNodes: THREE.Object3D[] = [];
 
   /** Whether the player is holding the weapon at all, as last told. */
   private held = false;
@@ -219,18 +268,18 @@ export class Viewmodel {
   /** 0 to 1 through the current reload, for the dip. */
   private reloadBlend = 0;
 
-  constructor(camera: THREE.Camera) {
+  constructor(camera: THREE.Camera, rifles: RifleModels) {
+    this.rifles = rifles;
     // Light enough to hold an edge against dark ground. A near-black weapon
     // against a shadowed hillside is one flat silhouette with no shape in it.
-    const material = new THREE.MeshStandardMaterial({ color: 0x3c4046, roughness: 0.6 });
-    this.rifle = buildRifle(RIFLE_LENGTH_M, material, true);
+    this.rifleMaterial = new THREE.MeshStandardMaterial({ color: 0x3c4046, roughness: 0.6 });
+    this.rifle = buildRifle(RIFLE_LENGTH_M, this.rifleMaterial, true);
     this.root.add(this.rifle);
 
-    // The flash hangs off the muzzle, which comes from the same proportions the
-    // rifle is built from rather than being measured off the drawing.
-    const muzzleZ = muzzleOffset(RIFLE_LENGTH_M);
+    // The flash hangs off the muzzle. Where the muzzle is depends on which
+    // rifle is up, so it is asked for rather than hard-coded.
     this.flash = buildFlash();
-    this.flash.position.set(0, 0.01, muzzleZ);
+    this.flash.position.set(0, this.barrelY(), this.muzzleZ());
     this.flash.visible = false;
     this.root.add(this.flash);
 
@@ -296,18 +345,28 @@ export class Viewmodel {
     });
     const up = new THREE.Vector3(0, 1, 0);
 
+    // Every part of a hand rides the weapon and nothing about it moves
+    // independently, so on a rifle swap the whole arm is taken down at once.
+    const track = (obj: THREE.Object3D): void => {
+      this.root.add(obj);
+      this.handNodes.push(obj);
+    };
+
     /**
      * One arm: a hand closed on the weapon, and a sleeve running back from its
-     * wrist towards the shoulder.
+     * wrist towards the elbow, then down off the frame.
      *
      * `at` is the axis of the thing being gripped, `turn` puts the canonical
      * hand onto it, and the wrist — hence where the sleeve starts — falls out
-     * of the two rather than being placed separately.
+     * of the two rather than being placed separately. `elbow` and `shoulder`
+     * are the two joints, both in the weapon's frame, chosen so the bend lands
+     * on screen (see the FIRING_ELBOW / SUPPORT_ELBOW notes).
      */
     const arm = (
       at: THREE.Vector3,
       turn: THREE.Quaternion,
       gripRadius: number,
+      elbow: THREE.Vector3,
       shoulder: THREE.Vector3,
       grip: { trigger?: boolean; thumbForward?: boolean },
     ): void => {
@@ -319,7 +378,7 @@ export class Viewmodel {
       });
       hand.position.copy(at);
       hand.quaternion.copy(turn);
-      this.root.add(hand);
+      track(hand);
 
       // The wrist leaves the palm along the hand's own +x, wherever the hand
       // has been turned to.
@@ -343,7 +402,7 @@ export class Viewmodel {
       );
       cuff.quaternion.setFromUnitVectors(up, towards);
       cuff.position.copy(wrist).addScaledVector(towards, 0.012);
-      this.root.add(cuff);
+      track(cuff);
 
       // The arm bends.
       //
@@ -353,18 +412,11 @@ export class Viewmodel {
       // curvature" is what a pipe *is*, and no amount of weave on it changes
       // the silhouette. Arms have an elbow, and the bend is the read.
       //
-      // So: two segments with the elbow pushed outboard and down off the
-      // straight line, thin at the wrist, thickest just above the elbow. The
-      // far end runs past the shoulder point, which sits behind the eye, so it
-      // is clipped by the near plane rather than showing a flat lid floating in
-      // mid-air — which is what the old fixed-length forearm photographed as.
-      const outward = new THREE.Vector3()
-        .crossVectors(towards, up)
-        .normalize()
-        .multiplyScalar(-Math.sign(shoulder.x) * ELBOW_OUT_M)
-        .addScaledVector(up, -ELBOW_DROP_M);
-      const elbow = wrist.clone().lerp(shoulder, 0.55).add(outward);
-
+      // So: two segments meeting at an elbow that projects onto the screen,
+      // thin at the wrist and thickest just above the elbow, with the far end
+      // running past the shoulder point — which sits behind the eye — so it is
+      // clipped by the near plane rather than showing a flat lid floating in
+      // mid-air.
       const bone = (from: THREE.Vector3, to: THREE.Vector3, near: number, far: number): void => {
         const along = to.clone().sub(from);
         const length = along.length();
@@ -379,11 +431,15 @@ export class Viewmodel {
         // The cylinder's own axis is +y; point that down the bone.
         mesh.quaternion.setFromUnitVectors(up, along.normalize());
         mesh.position.copy(from).addScaledVector(along, length / 2);
-        this.root.add(mesh);
+        track(mesh);
       };
 
-      bone(wrist, elbow, 0.62, 1.05);
-      bone(elbow, shoulder, 1.05, 1.3);
+      // The taper is the point of a limb. A real forearm roughly doubles in
+      // thickness from wrist to elbow, and it is that change over the visible
+      // span — not the bend alone — that stops the silhouette reading as a
+      // constant-width tube.
+      bone(wrist, elbow, 0.55, 1.15);
+      bone(elbow, shoulder, 1.15, 1.5);
 
       // A ball in the joint, so the two do not read as two pipes in a socket.
       const joint = new THREE.Mesh(
@@ -391,16 +447,8 @@ export class Viewmodel {
         sleeve,
       );
       joint.position.copy(elbow);
-      this.root.add(joint);
+      track(joint);
     };
-
-    // Shoulders sit below and well behind the weapon, outboard on each side.
-    // They are aim points for the sleeves rather than anatomy — nothing above
-    // the elbow is drawn — but they are now far enough back to be *behind the
-    // eye*, which is what lets each sleeve run off the bottom of the frame the
-    // way your own arms do instead of ending somewhere you can see.
-    const rightShoulder = new THREE.Vector3(0.46, -0.86, 0.52);
-    const leftShoulder = new THREE.Vector3(-0.48, -0.8, 0.48);
 
     // Firing hand: the pistol grip runs down the weapon's own -y, so turning
     // the canonical hand a quarter turn about x puts its grip axis on the grip,
@@ -410,11 +458,26 @@ export class Viewmodel {
       new THREE.Vector3(1, 0, 0),
       Math.PI / 2 + FIRING_RAKE_RAD,
     );
+    // Where each hand closes on the rifle. The primitive rifle and the real
+    // model grip at different points, so the positions come from whichever is
+    // up: the real rifle's pistol grip sits at its origin and its handguard at
+    // the measured barrel axis, while the primitive rifle's were dialled into
+    // its own proportions.
+    const firingGrip = this.glb
+      ? new THREE.Vector3(0, -0.02, RIFLE_LENGTH_M * 0.02)
+      : new THREE.Vector3(0, -0.035, RIFLE_LENGTH_M * 0.055);
+    const supportGrip = this.glb
+      ? new THREE.Vector3(0, this.barrelY(), RifleModels.handguardOffset(RIFLE_LENGTH_M))
+      : new THREE.Vector3(0, 0.006, RIFLE_LENGTH_M * SUPPORT_HAND_Z);
+    const firingRadius = this.glb ? 0.022 : FIRING_GRIP_RADIUS_M;
+    const supportRadius = this.glb ? 0.02 : SUPPORT_GRIP_RADIUS_M;
+
     arm(
-      new THREE.Vector3(0, -0.035, RIFLE_LENGTH_M * 0.055),
+      firingGrip,
       firing,
-      FIRING_GRIP_RADIUS_M,
-      rightShoulder,
+      firingRadius,
+      FIRING_ELBOW,
+      FIRING_SHOULDER,
       { trigger: true },
     );
 
@@ -425,10 +488,11 @@ export class Viewmodel {
       SUPPORT_ROLL_RAD,
     );
     arm(
-      new THREE.Vector3(0, 0.006, RIFLE_LENGTH_M * SUPPORT_HAND_Z),
+      supportGrip,
       support,
-      SUPPORT_GRIP_RADIUS_M,
-      leftShoulder,
+      supportRadius,
+      SUPPORT_ELBOW,
+      SUPPORT_SHOULDER,
       { thumbForward: true },
     );
   }
@@ -455,6 +519,69 @@ export class Viewmodel {
    */
   setHiddenForScope(hidden: boolean): void {
     this.root.visible = hidden ? false : this.held;
+  }
+
+  /**
+   * Swap the primitive rifle for the real model, once it has loaded.
+   *
+   * Everything that hangs off the rifle — the scope, both hands, the muzzle
+   * flash — is rebuilt from the real model's measured geometry, because the
+   * primitive rifle's proportions no longer apply. If the model never arrived
+   * the primitive rifle simply stays.
+   */
+  useRifleModel(): void {
+    const rifle = this.rifles.instantiate(RIFLE_LENGTH_M);
+    if (rifle === null) return;
+
+    this.root.remove(this.rifle);
+    for (const node of this.handNodes) this.root.remove(node);
+    this.handNodes.length = 0;
+
+    this.rifle = rifle;
+    this.root.add(this.rifle);
+    this.glb = true;
+
+    // The primitive scope is mounted on the real receiver at the height the
+    // real receiver is, borrowing the real model's own material so it matches.
+    const body = firstMaterial(rifle) ?? this.rifleMaterial;
+    mountScope(rifle, RIFLE_LENGTH_M, body, this.opticAxisY(), this.scopeCentreZ());
+
+    this.addHands();
+
+    // The flash now hangs off the real muzzle rather than the primitive one.
+    this.flash.position.set(0, this.barrelY(), this.muzzleZ());
+    this.flashLight.position.copy(this.flash.position);
+  }
+
+  /**
+   * The geometry facts of whichever rifle is up.
+   *
+   * The primitive rifle and the real model hold their muzzle, barrel and optic
+   * at different heights and distances from the grip, and every one of those
+   * is a fact a caller acts on — the flash goes on the muzzle, the support
+   * hand on the barrel, the eye on the optic. So instead of scattering
+   * if-this-else-that at the call sites, the choice lives here.
+   */
+  private muzzleZ(): number {
+    return this.glb
+      ? RifleModels.muzzleOffset(RIFLE_LENGTH_M)
+      : primitiveMuzzleOffset(RIFLE_LENGTH_M);
+  }
+  private barrelY(): number {
+    return this.glb
+      ? RifleModels.barrelHeight(RIFLE_LENGTH_M)
+      : PRIMITIVE_BARREL_Y;
+  }
+  private opticAxisY(): number {
+    return this.glb
+      ? RifleModels.opticHeight(RIFLE_LENGTH_M)
+      : primitiveOpticHeight(RIFLE_LENGTH_M);
+  }
+  private scopeCentreZ(): number {
+    return this.glb ? GLB_SCOPE_CENTRE * RIFLE_LENGTH_M : scopeCentre(RIFLE_LENGTH_M);
+  }
+  private adsY(): number {
+    return -this.opticAxisY();
   }
 
   /** A round has left the barrel. Called on the server's confirmation. */
@@ -523,7 +650,7 @@ export class Viewmodel {
     const x = HIP.x + (ADS_X - HIP.x) * this.aimBlend + sway * BOB_X_M * swayScale;
     const y =
       HIP.y +
-      (ADS_Y - HIP.y) * this.aimBlend +
+      (this.adsY() - HIP.y) * this.aimBlend +
       Math.abs(sway) * BOB_Y_M * swayScale -
       this.reloadBlend * RELOAD_DROP_M;
     const z = HIP.z + (ADS_Z - HIP.z) * this.aimBlend + this.recoilM;
@@ -554,6 +681,26 @@ export function reloadFraction(reloadingUntilTick: number, tick: number): number
   // Peaks in the middle of the reload and is back up by the end, so the weapon
   // is level again on the tick the player regains the ability to fire.
   return Math.sin(Math.min(1, remaining / total) * Math.PI);
+}
+
+/**
+ * The first material a model's meshes share, or null if it has none.
+ *
+ * The real rifle's scope is built out of the rifle's own material, so a grey
+ * tube and a grey rifle do not read as two different objects. Which material
+ * that is comes from the model rather than being assumed — the Quaternius
+ * asset happens to paint everything with three variants of the same scheme.
+ */
+function firstMaterial(root: THREE.Object3D): THREE.Material | null {
+  let found: THREE.Material | null = null;
+  root.traverse((object) => {
+    if (found !== null) return;
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const material = mesh.material as THREE.Material | THREE.Material[];
+    found = Array.isArray(material) ? (material[0] ?? null) : material;
+  });
+  return found;
 }
 
 /**

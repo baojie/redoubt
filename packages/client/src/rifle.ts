@@ -120,7 +120,7 @@ export function buildRifle(
     -RECEIVER_LENGTH - BARREL_LENGTH * 0.8,
   );
 
-  addScope(rifle, lengthM, material);
+  mountScope(rifle, lengthM, material, sightAxisY(lengthM), -SCOPE_FORWARD * lengthM);
 
   return rifle;
 }
@@ -143,6 +143,17 @@ export function opticHeight(lengthM: number): number {
 }
 
 /**
+ * The optic's axis above the receiver, as `buildRifle` mounts it.
+ *
+ * Separate from the exported `mountScope` so the primitive rifle keeps its own
+ * proportions while the real rifle model can mount the same scope at a height
+ * measured from its own receiver.
+ */
+function sightAxisY(lengthM: number): number {
+  return (RECEIVER_HEIGHT / 2 + SCOPE_RISE) * lengthM;
+}
+
+/**
  * Tube, mounting rings and a glass objective.
  *
  * The tube is open-ended and the eyepiece has no lens in it, because the eye
@@ -153,19 +164,41 @@ export function opticHeight(lengthM: number): number {
  *
  * What is left is a ring to look through — the inside wall of the tube, drawn
  * from both sides, framing the sight picture the way a real eyepiece does.
+ *
+ * `axisY` and `centreZ` are the mount, in metres: the height of the tube's
+ * axis above the grip and how far forward of the grip its middle sits. The
+ * caller supplies them so both the primitive rifle and the real model can use
+ * this same scope at heights that fit their own receivers.
+ *
+ * The real model arrives **scaled**: `instantiate` shrinks the whole group so
+ * the asset's own units become metres, which also shrinks whatever is added to
+ * it. A scope placed at `axisY` (metres) in that group's local frame would
+ * land a hundredth of the way up the receiver. So every size and position is
+ * divided by the group's scale, putting it back in the asset's units where the
+ * group's own scale turns it into the metres the caller asked for. The
+ * primitive rifle is built in metres already — its scale is one and the
+ * division is a no-op.
  */
-function addScope(rifle: THREE.Group, lengthM: number, body: THREE.Material): void {
-  const axisY = (RECEIVER_HEIGHT / 2 + SCOPE_RISE) * lengthM;
-  const centreZ = -SCOPE_FORWARD * lengthM;
+export function mountScope(
+  rifle: THREE.Object3D,
+  lengthM: number,
+  body: THREE.Material,
+  axisY: number,
+  centreZ: number,
+): void {
+  const s = rifle.getWorldScale(new THREE.Vector3()).x;
+  const L = lengthM / s;
+  const y = axisY / s;
+  const z = centreZ / s;
 
   const tubeMaterial = (body as THREE.MeshStandardMaterial).clone();
   tubeMaterial.side = THREE.DoubleSide;
 
   const tube = new THREE.Mesh(
     new THREE.CylinderGeometry(
-      SCOPE_RADIUS * lengthM,
-      SCOPE_RADIUS * lengthM,
-      SCOPE_LENGTH * lengthM,
+      SCOPE_RADIUS * L,
+      SCOPE_RADIUS * L,
+      SCOPE_LENGTH * L,
       16,
       1,
       true,
@@ -174,15 +207,15 @@ function addScope(rifle: THREE.Group, lengthM: number, body: THREE.Material): vo
   );
   // Cylinders stand on their own y; the scope lies along the barrel.
   tube.rotation.x = Math.PI / 2;
-  tube.position.set(0, axisY, centreZ);
+  tube.position.set(0, y, z);
   rifle.add(tube);
 
   // The bell at the objective end, also open, so it flares without blocking.
   const bell = new THREE.Mesh(
     new THREE.CylinderGeometry(
-      LENS_RADIUS * lengthM,
-      SCOPE_RADIUS * lengthM,
-      0.05 * lengthM,
+      LENS_RADIUS * L,
+      SCOPE_RADIUS * L,
+      0.05 * L,
       16,
       1,
       true,
@@ -190,7 +223,7 @@ function addScope(rifle: THREE.Group, lengthM: number, body: THREE.Material): vo
     tubeMaterial,
   );
   bell.rotation.x = Math.PI / 2;
-  bell.position.set(0, axisY, centreZ - (SCOPE_LENGTH * lengthM) / 2);
+  bell.position.set(0, y, z - (SCOPE_LENGTH * L) / 2);
   rifle.add(bell);
 
   // Glass, at the far end only — far enough forward that it tints the view
@@ -204,23 +237,23 @@ function addScope(rifle: THREE.Group, lengthM: number, body: THREE.Material): vo
     side: THREE.DoubleSide,
   });
   const objective = new THREE.Mesh(
-    new THREE.CircleGeometry(LENS_RADIUS * lengthM * 0.95, 16),
+    new THREE.CircleGeometry(LENS_RADIUS * L * 0.95, 16),
     glass,
   );
-  objective.position.set(0, axisY, centreZ - (SCOPE_LENGTH * lengthM) / 2 - 0.025 * lengthM);
+  objective.position.set(0, y, z - (SCOPE_LENGTH * L) / 2 - 0.025 * L);
   rifle.add(objective);
 
   for (const offset of [-0.07, 0.07]) {
     const ring = new THREE.Mesh(
       new THREE.CylinderGeometry(
-        RING_RADIUS * lengthM,
-        RING_RADIUS * lengthM,
-        0.02 * lengthM,
+        RING_RADIUS * L,
+        RING_RADIUS * L,
+        0.02 * L,
         10,
       ),
       body,
     );
-    ring.position.set(0, axisY - SCOPE_RADIUS * lengthM, centreZ + offset * lengthM);
+    ring.position.set(0, y - SCOPE_RADIUS * L, z + offset * L);
     rifle.add(ring);
   }
 }
@@ -235,4 +268,15 @@ function addScope(rifle: THREE.Group, lengthM: number, body: THREE.Material): vo
  */
 export function muzzleOffset(lengthM: number): number {
   return -(RECEIVER_LENGTH + BARREL_LENGTH) * lengthM;
+}
+
+/**
+ * How far forward of the grip the primitive scope's middle sits.
+ *
+ * The viewmodel's real rifle mounts the same scope at a centre measured from
+ * its own receiver, so the procedural rifle keeps its centre here instead of
+ * hard-coding the fraction twice.
+ */
+export function scopeCentre(lengthM: number): number {
+  return -SCOPE_FORWARD * lengthM;
 }
