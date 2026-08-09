@@ -26,6 +26,7 @@ import * as THREE from "three";
 import { rules } from "@redoubt/core";
 import { fabricTexture, gloveTexture } from "./fabric.js";
 import { flashTexture } from "./flash.js";
+import { buildHand, wristOffset } from "./hands.js";
 import { buildRifle, muzzleOffset, opticHeight } from "./rifle.js";
 
 /**
@@ -140,11 +141,60 @@ const FLASH_SIZE_VARIATION = 0.35;
  * darkening, because a plain white multiplier let both surfaces come out paler
  * than the soldier's own fatigues and the gloves read as light grey blocks.
  */
-const SLEEVE_COLOUR = 0xc8cdbe;
-const GLOVE_COLOUR = 0x74767c;
-const FOREARM_LENGTH_M = 0.26;
+const SLEEVE_COLOUR = 0xa7ad98;
+/**
+ * Warm, where it used to be grey.
+ *
+ * The rifle is a neutral 0x3c4046 and the gloves were a neutral 0x74767c over a
+ * near-black leather texture — two greys of similar value, touching, in the
+ * corner of every frame. Value alone was never going to separate them, so the
+ * hand now separates by *hue*: tan leather against a cold grey weapon reads as
+ * two objects even where the light is flat and even in the shadowed half.
+ */
+const GLOVE_COLOUR = 0xc39c6d;
 const FOREARM_RADIUS_M = 0.027;
-const HAND_SIZE_M = 0.072;
+
+/**
+ * How far the elbow is pushed off the straight line from wrist to shoulder.
+ *
+ * Out to the side and down, which is where an elbow goes when the weapon is up
+ * — and, more to the point, enough of a bend to be seen. At zero the arm is a
+ * straight tube, and a straight tube is what "these are two iron pipes" means.
+ */
+const ELBOW_OUT_M = 0.075;
+const ELBOW_DROP_M = 0.035;
+
+/** Across the knuckles. A hand, at the scale this rifle is drawn. */
+const HAND_WIDTH_M = 0.063;
+
+/**
+ * What each hand closes around.
+ *
+ * Both come off the rifle's own proportions rather than being dialled in: the
+ * support hand takes the barrel's half-thickness plus clearance for a glove,
+ * the firing hand the pistol grip's. Resize the weapon and the grips still fit,
+ * which is the whole reason `rifle.ts` keeps its proportions as fractions.
+ */
+const SUPPORT_GRIP_RADIUS_M = 0.024;
+const FIRING_GRIP_RADIUS_M = 0.026;
+
+/** Where along the barrel the support hand sits, as a fraction of the length. */
+const SUPPORT_HAND_Z = -0.42;
+
+/**
+ * How the support hand is turned onto the handguard.
+ *
+ * A quarter turn puts the back of the hand *underneath* the barrel, which is
+ * how a handguard is actually held and — the reason it is worth the trouble —
+ * the only arrangement where the closed fingers face the eye. With the hand
+ * outboard, every finger is on the far side of the barrel and the grip is a
+ * brown band; from underneath, the fingers come up the near side and the hand
+ * reads as holding something.
+ */
+const SUPPORT_ROLL_RAD = -Math.PI / 2 - 0.3;
+
+/** The firing hand rakes back a little, as a hand on a pistol grip does. */
+const FIRING_RAKE_RAD = 0.22;
 
 /** How far the weapon drops out of view during a reload. */
 const RELOAD_DROP_M = 0.22;
@@ -198,7 +248,7 @@ export class Viewmodel {
   /**
    * Two arms, gripping.
    *
-   * Each forearm is aimed along the line from its hand back towards the
+   * Each forearm is aimed along the line from its wrist back towards the
    * shoulder it comes from, rather than being built out of Euler angles. An
    * earlier version set `rotation.set(x, 0, z)` on a cylinder, the second
    * rotation applied in the frame the first had already turned, and both arms
@@ -208,12 +258,16 @@ export class Viewmodel {
    * shoulder would cross the camera's near plane and be sliced open from
    * inside, and none of it would be visible anyway.
    *
-   * The hand is built rather than boxed. A single cube for a fist reads as a
-   * pipe end — which is exactly how the first version looked, because the cube
-   * was also buried inside the receiver where nothing of it showed. A hand is
-   * recognisable from three things at this distance: it is wider than the arm,
-   * it has a thumb on one side, and it has knuckles across the back. So it gets
-   * all three, and it sits proud of the weapon where it can be seen.
+   * The hands come from `hands.ts` and are placed **on the weapon** — the
+   * support hand around the barrel, the firing hand around the pistol grip —
+   * rather than beside it. That is the correction. The previous version held
+   * both hands clear of the receiver so they would not be swallowed by it, and
+   * the result was two sleeves ending in dark lumps near a rifle they were not
+   * touching: hands read as hands because of the fingers closed around
+   * something, and a hand holding nothing has no fingers to show.
+   *
+   * Each hand is turned onto its grip with a quaternion built from the axis it
+   * closes around, not with Euler angles, for the same reason the forearms are.
    */
   private addHands(): void {
     // Textured rather than flat. The hands are in the corner of every single
@@ -242,45 +296,39 @@ export class Viewmodel {
     });
     const up = new THREE.Vector3(0, 1, 0);
 
-    const arm = (hand: THREE.Vector3, shoulder: THREE.Vector3, thumbSide: number): void => {
-      const towards = shoulder.clone().sub(hand).normalize();
+    /**
+     * One arm: a hand closed on the weapon, and a sleeve running back from its
+     * wrist towards the shoulder.
+     *
+     * `at` is the axis of the thing being gripped, `turn` puts the canonical
+     * hand onto it, and the wrist — hence where the sleeve starts — falls out
+     * of the two rather than being placed separately.
+     */
+    const arm = (
+      at: THREE.Vector3,
+      turn: THREE.Quaternion,
+      gripRadius: number,
+      shoulder: THREE.Vector3,
+      grip: { trigger?: boolean; thumbForward?: boolean },
+    ): void => {
+      const hand = buildHand({
+        gripRadius,
+        width: HAND_WIDTH_M,
+        material: glove,
+        ...grip,
+      });
+      hand.position.copy(at);
+      hand.quaternion.copy(turn);
+      this.root.add(hand);
 
-      // Palm: flattened, not a cube — a hand around a grip is deeper than it
-      // is wide, and the flattening is most of what stops it reading as a box.
-      const palm = new THREE.Mesh(
-        new THREE.BoxGeometry(HAND_SIZE_M * 0.82, HAND_SIZE_M * 1.05, HAND_SIZE_M * 1.5),
-        glove,
-      );
-      palm.position.copy(hand);
-      this.root.add(palm);
-
-      // Knuckles: four small blocks across the back of the hand.
-      for (let finger = 0; finger < 4; finger++) {
-        const knuckle = new THREE.Mesh(
-          new THREE.BoxGeometry(HAND_SIZE_M * 0.86, HAND_SIZE_M * 0.24, HAND_SIZE_M * 0.3),
-          glove,
+      // The wrist leaves the palm along the hand's own +x, wherever the hand
+      // has been turned to.
+      const wrist = at
+        .clone()
+        .add(
+          new THREE.Vector3(wristOffset(gripRadius), 0, 0).applyQuaternion(turn),
         );
-        knuckle.position
-          .copy(hand)
-          .add(
-            new THREE.Vector3(
-              0,
-              HAND_SIZE_M * 0.5,
-              HAND_SIZE_M * (0.52 - finger * 0.34),
-            ),
-          );
-        this.root.add(knuckle);
-      }
-
-      // Thumb, laid along the weapon on the inboard side.
-      const thumb = new THREE.Mesh(
-        new THREE.BoxGeometry(HAND_SIZE_M * 0.3, HAND_SIZE_M * 0.32, HAND_SIZE_M * 0.95),
-        glove,
-      );
-      thumb.position
-        .copy(hand)
-        .add(new THREE.Vector3(thumbSide * HAND_SIZE_M * 0.5, HAND_SIZE_M * 0.24, 0));
-      this.root.add(thumb);
+      const towards = shoulder.clone().sub(wrist).normalize();
 
       // Cuff, where the glove meets the sleeve. A visible seam is what tells
       // you the two are different things rather than one continuous tube.
@@ -294,35 +342,95 @@ export class Viewmodel {
         glove,
       );
       cuff.quaternion.setFromUnitVectors(up, towards);
-      cuff.position.copy(hand).addScaledVector(towards, HAND_SIZE_M * 0.85);
+      cuff.position.copy(wrist).addScaledVector(towards, 0.012);
       this.root.add(cuff);
 
-      const forearm = new THREE.Mesh(
-        new THREE.CylinderGeometry(
-          FOREARM_RADIUS_M * 0.8,
-          FOREARM_RADIUS_M,
-          FOREARM_LENGTH_M,
-          10,
-        ),
+      // The arm bends.
+      //
+      // This is the whole of what was wrong, and it is worth being blunt about:
+      // a single straight cylinder from wrist to shoulder is a pipe. Not a
+      // badly textured arm — a pipe, because "straight tube of constant
+      // curvature" is what a pipe *is*, and no amount of weave on it changes
+      // the silhouette. Arms have an elbow, and the bend is the read.
+      //
+      // So: two segments with the elbow pushed outboard and down off the
+      // straight line, thin at the wrist, thickest just above the elbow. The
+      // far end runs past the shoulder point, which sits behind the eye, so it
+      // is clipped by the near plane rather than showing a flat lid floating in
+      // mid-air — which is what the old fixed-length forearm photographed as.
+      const outward = new THREE.Vector3()
+        .crossVectors(towards, up)
+        .normalize()
+        .multiplyScalar(-Math.sign(shoulder.x) * ELBOW_OUT_M)
+        .addScaledVector(up, -ELBOW_DROP_M);
+      const elbow = wrist.clone().lerp(shoulder, 0.55).add(outward);
+
+      const bone = (from: THREE.Vector3, to: THREE.Vector3, near: number, far: number): void => {
+        const along = to.clone().sub(from);
+        const length = along.length();
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(FOREARM_RADIUS_M * near, FOREARM_RADIUS_M * far, length, 10),
+          sleeve,
+        );
+        // Oval in section, not round. A forearm is wider across than through,
+        // and a perfectly circular cross-section is the other half of why a
+        // cylinder reads as plumbing however it is shaded.
+        mesh.scale.set(1, 1, 0.82);
+        // The cylinder's own axis is +y; point that down the bone.
+        mesh.quaternion.setFromUnitVectors(up, along.normalize());
+        mesh.position.copy(from).addScaledVector(along, length / 2);
+        this.root.add(mesh);
+      };
+
+      bone(wrist, elbow, 0.62, 1.05);
+      bone(elbow, shoulder, 1.05, 1.3);
+
+      // A ball in the joint, so the two do not read as two pipes in a socket.
+      const joint = new THREE.Mesh(
+        new THREE.SphereGeometry(FOREARM_RADIUS_M * 1.08, 10, 8),
         sleeve,
       );
-      // The cylinder's own axis is +y; point that at the shoulder.
-      forearm.quaternion.setFromUnitVectors(up, towards);
-      forearm.position.copy(hand).addScaledVector(towards, FOREARM_LENGTH_M / 2 + 0.03);
-      this.root.add(forearm);
+      joint.position.copy(elbow);
+      this.root.add(joint);
     };
 
-    // Shoulders sit below and behind the weapon, outboard on each side. These
-    // are directions for the forearms to run along, not anatomy — nothing above
-    // the elbow is ever drawn.
-    const rightShoulder = new THREE.Vector3(0.2, -0.34, 0.34);
-    const leftShoulder = new THREE.Vector3(-0.22, -0.3, 0.3);
+    // Shoulders sit below and well behind the weapon, outboard on each side.
+    // They are aim points for the sleeves rather than anatomy — nothing above
+    // the elbow is drawn — but they are now far enough back to be *behind the
+    // eye*, which is what lets each sleeve run off the bottom of the frame the
+    // way your own arms do instead of ending somewhere you can see.
+    const rightShoulder = new THREE.Vector3(0.46, -0.86, 0.52);
+    const leftShoulder = new THREE.Vector3(-0.48, -0.8, 0.48);
 
-    // Firing hand on the grip, thumb inboard; support hand forward under the
-    // handguard, thumb the other way. Both are pushed clear of the receiver so
-    // the hand is actually visible rather than swallowed by the weapon.
-    arm(new THREE.Vector3(0.062, -0.088, RIFLE_LENGTH_M * 0.05), rightShoulder, -1);
-    arm(new THREE.Vector3(-0.058, -0.072, -RIFLE_LENGTH_M * 0.3), leftShoulder, 1);
+    // Firing hand: the pistol grip runs down the weapon's own -y, so turning
+    // the canonical hand a quarter turn about x puts its grip axis on the grip,
+    // its palm outboard right, its fingers closing around the front of the grip
+    // and its thumb behind — which is where all four of those things belong.
+    const firing = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      Math.PI / 2 + FIRING_RAKE_RAD,
+    );
+    arm(
+      new THREE.Vector3(0, -0.035, RIFLE_LENGTH_M * 0.055),
+      firing,
+      FIRING_GRIP_RADIUS_M,
+      rightShoulder,
+      { trigger: true },
+    );
+
+    // Support hand: the barrel already runs along z, so the canonical hand only
+    // has to be rolled round it until the back of the hand is underneath.
+    const support = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 0, 1),
+      SUPPORT_ROLL_RAD,
+    );
+    arm(
+      new THREE.Vector3(0, 0.006, RIFLE_LENGTH_M * SUPPORT_HAND_Z),
+      support,
+      SUPPORT_GRIP_RADIUS_M,
+      leftShoulder,
+      { thumbForward: true },
+    );
   }
 
   /**
