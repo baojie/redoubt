@@ -1,9 +1,9 @@
 # Third-party assets
 
 Most of this project is asset-free by design: the terrain is generated from the
-match seed, the buildings are textured procedurally, and the weapons, gear and
-effects are built from primitives at runtime. The exceptions — the soldier and
-the two vehicles — are listed here, with their licences.
+match seed, the buildings are textured procedurally, and the effects are built
+from primitives at runtime. The exceptions — the soldier, the two vehicles and
+the rifle the player holds — are listed here, with their licences.
 
 ## Soldier
 
@@ -57,3 +57,24 @@ rounds against — uniformly, so they keep their proportions; see
 Both were checked against the constraint in PLAN §8: they are generic civilian
 and utility vehicles from a public-domain asset library, not extracted from any
 commercial game.
+
+## Rifle
+
+`packages/client/public/models/AssaultRifle.glb` — the rifle the player holds and
+every soldier on the map carries.
+
+- **Source**: "Assault Rifle" by Quaternius, via [Poly Pizza](https://poly.pizza/m/Bgvuu4CUMV)
+- **Licence**: CC0 1.0 Universal (public domain dedication)
+- **Licence note**: `packages/client/public/models/AssaultRifle.LICENSE.md`
+
+CC0 requires no attribution at all, so this entry exists for the same reason
+the vehicle one does: knowing where a binary in the repository came from is
+worth more than the licence minimum. It is the same library as the soldier and
+the vehicles, and like them it is a generic public-domain weapon, not something
+extracted from a commercial game.
+
+The model ships with a front sight tower and a carry handle but no optic, so the
+programmatic scope from `rifle.ts` is mounted on top of it at a height measured
+from the real receiver (see `RifleModels` in `rifleModel.ts`). It is used
+unmodified otherwise; scaled at runtime to match the primitive rifle's length so
+the same weapon is drawn in the player's hands and slung on soldiers.
