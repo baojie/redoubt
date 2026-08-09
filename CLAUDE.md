@@ -1,6 +1,6 @@
 # Project constraints (non-negotiable)
 
-Project codename **redoubt**. Full plan in `PLAN.md`; milestone breakdown in its §5.
+Project codename **redoubt**. Full plan in `ref/PLAN.md`; milestone breakdown in its §5.
 
 ## Architecture
 - `packages/core` is a pure-function rules engine: it must not import any
@@ -45,6 +45,7 @@ State hashes are written to snapshot files and compared on regression.
 ## Documentation and commit language
 - README, CHANGELOG, and daily logs must be written in English.
 - Commit messages must be in English.
+- Code comments must be written in English.
 - Committed history (Chinese commits, Chinese comments) is not rewritten; this
   convention only binds changes going forward.
 

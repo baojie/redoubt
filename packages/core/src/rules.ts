@@ -1,11 +1,11 @@
 /**
  * The single source of truth for every tunable number in the game.
  *
- * PLAN.md §6 constraint: a bare numeric literal anywhere else in `core`
+ * ref/PLAN.md §6 constraint: a bare numeric literal anywhere else in `core`
  * (other than 0 / 1 / -1, array indices, and the algorithm constants inside
  * rng.ts and hash.ts) is a bug. Change balance here and nowhere else.
  *
- * Values are transcribed from the design table in PLAN.md §2, which in turn
+ * Values are transcribed from the design table in ref/PLAN.md §2, which in turn
  * derives from publicly documented tactical-shooter conventions. Game
  * mechanics and numbers are not copyrightable; names and assets are, and none
  * are used here.

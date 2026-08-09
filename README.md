@@ -2,7 +2,7 @@
 
 A tactical team-shooter built rules-first, inspired by Squad and Project Reality.
 
-The premise, from `PLAN.md`: what makes this genre work is not gunplay, it is that
+The premise, from `ref/PLAN.md`: what makes this genre work is not gunplay, it is that
 **respawns are a scarce resource and logistics decide who has them.** So the
 rules engine comes first and the graphics come last. The rules engine is the
 whole game; the first-person client is a view into it.
@@ -204,7 +204,7 @@ to see the enemy.
 ## Legal
 
 Game mechanics, rules and numbers are not copyrightable, and the design table in
-`PLAN.md` is transcribed from publicly documented conventions of the genre. No
+`ref/PLAN.md` is transcribed from publicly documented conventions of the genre. No
 names, logos, maps, models, textures, audio, UI art or code from any commercial
 game are used here. The map, its place names and the project name are original.
 
